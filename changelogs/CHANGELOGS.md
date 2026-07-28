@@ -2,6 +2,25 @@
 
 Newest first. One entry per completed task.
 
+## Chore - Clarify AGENTS.md failing-test rationale and commit tooling - 2026-07-28 06:54 AM EDT
+
+**Added**
+- `AGENTS.md` "Commits": the `git-commit-formatter` skill requirement, and the rule that no commit
+  ever carries a `Co-Authored-By` trailer or lists Claude as a co-author.
+
+**Changed**
+- `AGENTS.md` "Failing tests before features": expanded beyond the three mechanical steps to state
+  that the red run is evidence the implementer understood the task's core functionality. Adds four
+  practical rules: derive tests from `SPEC.md` rather than from written code, require the failure to
+  be behavioral rather than a missing-module error, cover each task's core functionality with at
+  least one test that would fail against a plausible wrong implementation (citing the anti-tunneling
+  case in `tasks/task-03-collision.md`), and treat passing tests as the definition of done.
+- `AGENTS.md` "Commits": corrected the changelog path from `changelogs/CHANGELOG.md` to
+  `changelogs/CHANGELOGS.md`, which is the file that actually exists.
+
+**Deleted**
+- Nothing.
+
 ## Task 00 - Author the implementation task backlog - 2026-07-28 05:55 AM EDT
 
 **Added**
