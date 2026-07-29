@@ -2,6 +2,38 @@
 
 Newest first. One entry per completed task.
 
+## Task 05 - Game phase machine - 2026-07-29 11:45 PM EDT
+
+**Added**
+- `src/game.js`: `createGame`, `pressStart`, `startLevel`, and `step`, plus the `MAX_DT` (0.05s) and
+  `SCARE_DURATION` (10s) constants. `step` clamps `dt` first, normalizes any input vector longer than
+  1, resolves the move with `sweep`, and checks the exit on the post-move position. A wall hit resets
+  the blob to the start cell centre and increments `hits` while leaving the maze and seed untouched.
+  The scare phase accumulates elapsed time and, at `SCARE_DURATION`, returns a fresh `createGame()`
+  so discarding state is structural rather than a field-by-field reset.
+- `tests/game.test.js`, 22 cases: seven phase-transition cases including input being ignored outside
+  `playing` and the post-scare state deep-equalling a fresh game; six movement cases covering exact
+  speed, diagonal normalization, frame-rate independence, the `dt` clamp, and a fast plunge that
+  reports a hit rather than tunneling; seven reset and exit cases; plus a guard that `step` never
+  mutates its input and a source scan proving the module names no `document`, `window`, `Date`,
+  `performance`, or `localStorage`.
+
+**Changed**
+- Nothing. `SPEC.md` section 9 already carried the phase machine, the state shape, and the movement
+  rules.
+
+**Deleted**
+- Nothing.
+
+**Notes**
+- Red run against a stub that moved straight to the destination with no clamp and no sweep: 14 of 22
+  cases failed on their assertions.
+- The anti-tunneling and wall-hit cases raise the level's `speed` to 100 in a copied state so a
+  single clamped frame covers five cells. Testing them with the shipped speed would be impossible:
+  `speed * MAX_DT` is at most 0.18 cells, far short of a wall.
+- Movement tests run on a copied state with `segments: []` so an open corridor is guaranteed and the
+  assertions are about the movement maths, not about which seed happens to carve a straight run.
+
 ## Task 04 - Difficulty tuning table - 2026-07-29 11:31 PM EDT
 
 **Added**
