@@ -6,11 +6,22 @@
 /** Fraction of the shorter viewport axis the maze fills, leaving a margin. */
 export const FIT = 0.92;
 
+/**
+ * Ceiling on the canvas backing store's pixel ratio. A phone reporting 3 would fill nine times the
+ * pixels every frame for a difference no one can see on flat white lines over black.
+ */
+export const MAX_DPR = 2;
+
+/** Usable backing-store ratio: capped, and never zero or missing, which would render blank. */
+export function backingScale(dpr) {
+  return Number.isFinite(dpr) && dpr > 1 ? Math.min(dpr, MAX_DPR) : 1;
+}
+
 /** Fraction of the fog radius that is fully clear before the edge starts fading. */
 const FOG_CLEAR = 0.75;
 
-/** Pixels of glow around the blob, at a scale of 1 cell per pixel. */
-const BLOB_GLOW = 0.35;
+/** How far the blob's glow reaches, as a multiple of the blob radius. */
+const BLOB_HALO = 2;
 
 /**
  * Fit a `cols` x `rows` maze into a viewport. Aspect independent: rotating the device yields the
@@ -63,30 +74,79 @@ export function createRenderer(canvas) {
   let viewW = 0;
   let viewH = 0;
 
+  // Gradients are built once per radius and reused by translating the canvas to the blob, rather
+  // than rebuilt every frame at a new centre. Both are the same shape wherever the blob is.
+  let fogFade = null;
+  let fogFadeRadius = 0;
+  let blobHalo = null;
+  let blobHaloRadius = 0;
+
+  // Last drawn frame, so a frame that would change nothing can be skipped outright.
+  let lastX = NaN;
+  let lastY = NaN;
+  let lastW = 0;
+  let lastH = 0;
+
   function resize() {
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = backingScale(window.devicePixelRatio);
     viewW = canvas.clientWidth;
     viewH = canvas.clientHeight;
     canvas.width = Math.round(viewW * dpr);
     canvas.height = Math.round(viewH * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    lastX = NaN;
+  }
+
+  /** Transparent at the clear radius, opaque black at the edge. Centred on the origin. */
+  function fadeFor(radius) {
+    if (fogFade && fogFadeRadius === radius) return fogFade;
+    fogFade = ctx.createRadialGradient(0, 0, radius * FOG_CLEAR, 0, 0, radius);
+    fogFade.addColorStop(0, 'rgba(0, 0, 0, 0)');
+    fogFade.addColorStop(1, 'rgba(0, 0, 0, 1)');
+    fogFadeRadius = radius;
+    return fogFade;
+  }
+
+  /** The blob's soft edge, replacing a per-frame `shadowBlur`. Centred on the origin. */
+  function haloFor(radius) {
+    if (blobHalo && blobHaloRadius === radius) return blobHalo;
+    blobHalo = ctx.createRadialGradient(0, 0, radius * 0.5, 0, 0, radius * BLOB_HALO);
+    blobHalo.addColorStop(0, 'rgba(255, 255, 255, 1)');
+    blobHalo.addColorStop(0.5, 'rgba(255, 255, 255, 0.35)');
+    blobHalo.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    blobHaloRadius = radius;
+    return blobHalo;
   }
 
   function draw(state) {
+    if (state.phase !== 'playing') {
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, viewW, viewH);
+      lastX = NaN;
+      return;
+    }
+
+    const { level, pos, segments } = state;
+
+    // Nothing moved and nothing resized, so the last frame is still correct.
+    if (pos.x === lastX && pos.y === lastY && viewW === lastW && viewH === lastH) return;
+    lastX = pos.x;
+    lastY = pos.y;
+    lastW = viewW;
+    lastH = viewH;
+
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, viewW, viewH);
 
-    if (state.phase !== 'playing') return;
-
-    const { level, pos, segments } = state;
     const t = fitTransform(viewW, viewH, state.maze.cols, state.maze.rows);
-    const blob = toPixels(pos.x, pos.y, t);
+    const blobX = t.offsetX + pos.x * t.scale;
+    const blobY = t.offsetY + pos.y * t.scale;
     const fog = fogRadiusPx(level, t.scale);
 
     // Walls, clipped to the fog disc. Everything outside it stays the black already painted.
     ctx.save();
     ctx.beginPath();
-    ctx.arc(blob.x, blob.y, fog, 0, Math.PI * 2);
+    ctx.arc(blobX, blobY, fog, 0, Math.PI * 2);
     ctx.clip();
 
     ctx.strokeStyle = '#fff';
@@ -95,32 +155,37 @@ export function createRenderer(canvas) {
     ctx.beginPath();
     for (const seg of segments) {
       if (outsideFog(seg, pos.x, pos.y, level.fogRadius)) continue;
-      const a = toPixels(seg.x1, seg.y1, t);
-      const b = toPixels(seg.x2, seg.y2, t);
-      ctx.moveTo(a.x, a.y);
-      ctx.lineTo(b.x, b.y);
+      // Inline rather than via `toPixels`, to allocate nothing per segment per frame.
+      ctx.moveTo(t.offsetX + seg.x1 * t.scale, t.offsetY + seg.y1 * t.scale);
+      ctx.lineTo(t.offsetX + seg.x2 * t.scale, t.offsetY + seg.y2 * t.scale);
     }
     ctx.stroke();
     ctx.restore();
 
+    // Everything from here is drawn around the origin, with the canvas translated to the blob, so
+    // the cached gradients stay valid wherever the blob is.
+    ctx.save();
+    ctx.translate(blobX, blobY);
+
     // Fade the outer quarter of the disc to black, so the fog edge is not a cookie cutter.
-    const fade = ctx.createRadialGradient(blob.x, blob.y, fog * FOG_CLEAR, blob.x, blob.y, fog);
-    fade.addColorStop(0, 'rgba(0, 0, 0, 0)');
-    fade.addColorStop(1, 'rgba(0, 0, 0, 1)');
-    ctx.fillStyle = fade;
+    ctx.fillStyle = fadeFor(fog);
     ctx.beginPath();
-    ctx.arc(blob.x, blob.y, fog, 0, Math.PI * 2);
+    ctx.arc(0, 0, fog, 0, Math.PI * 2);
     ctx.fill();
 
     // The blob. Nothing else is drawn: no HUD, no timer, no hit counter, and no exit marker, since
     // marking the exit would leak the goal through the fog.
-    ctx.save();
-    ctx.shadowColor = '#fff';
-    ctx.shadowBlur = BLOB_GLOW * t.scale;
+    const blobRadius = level.blobRadius * t.scale;
+    ctx.fillStyle = haloFor(blobRadius);
+    ctx.beginPath();
+    ctx.arc(0, 0, blobRadius * BLOB_HALO, 0, Math.PI * 2);
+    ctx.fill();
+
     ctx.fillStyle = '#fff';
     ctx.beginPath();
-    ctx.arc(blob.x, blob.y, level.blobRadius * t.scale, 0, Math.PI * 2);
+    ctx.arc(0, 0, blobRadius, 0, Math.PI * 2);
     ctx.fill();
+
     ctx.restore();
   }
 

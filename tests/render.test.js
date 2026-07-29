@@ -2,7 +2,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { DIFFICULTY, LEVELS } from '../src/difficulty.js';
-import { FIT, fitTransform, toPixels, toCells, strokeWidthPx, fogRadiusPx } from '../src/render.js';
+import {
+  FIT,
+  MAX_DPR,
+  backingScale,
+  fitTransform,
+  toPixels,
+  toCells,
+  strokeWidthPx,
+  fogRadiusPx,
+} from '../src/render.js';
 
 test('fitTransform centres a square maze', () => {
   const t = fitTransform(1000, 600, 10, 10);
@@ -62,6 +71,28 @@ test('strokeWidth matches collision geometry', () => {
       level.wallHalfThickness * 2 * scale,
       'the drawn line must be exactly the geometry collision uses',
     );
+  }
+});
+
+test('backingScale caps the device pixel ratio', () => {
+  assert.ok(MAX_DPR <= 2, 'the cap itself must stay low enough to matter on a phone');
+
+  assert.equal(backingScale(1), 1, 'an ordinary display passes through untouched');
+  assert.equal(backingScale(2), 2, 'a retina display passes through untouched');
+  assert.equal(
+    backingScale(3),
+    MAX_DPR,
+    'a DPR-3 phone would otherwise fill nine times the pixels every frame',
+  );
+  assert.equal(backingScale(4), MAX_DPR);
+});
+
+test('backingScale never returns a degenerate ratio', () => {
+  // `devicePixelRatio` is missing in some embedded webviews and 0 in a few headless setups. A zero
+  // here would collapse the backing store to nothing and the game would render blank.
+  for (const bad of [undefined, null, 0, -1, NaN]) {
+    const scale = backingScale(bad);
+    assert.ok(Number.isFinite(scale) && scale >= 1, `backingScale(${bad}) returned ${scale}`);
   }
 });
 

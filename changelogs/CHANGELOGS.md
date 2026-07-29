@@ -2,6 +2,65 @@
 
 Newest first. One entry per completed task.
 
+## Performance - Cut per-frame canvas cost and harden the mobile viewport - 2026-07-29 11:50 PM EDT
+
+Measured before and after in real Chrome, HARD level, 625 segments, rather than asserted.
+
+| Metric | Before | After |
+| --- | --- | --- |
+| Draw cost, DPR 1 | 0.0555 ms | 0.0380 ms (1.46x) |
+| Draw cost, DPR 3 | 0.0443 ms | 0.0353 ms (1.26x) |
+| Idle frame, blob not moving | 0.0355 ms | 0.0005 ms (~70x) |
+| Backing store at DPR 3 | 2700x2700 | 1800x1800 (2.25x fewer pixels) |
+
+**Added**
+- `src/render.js`: `MAX_DPR` and `backingScale(dpr)`, capping the backing store at 2x. A phone
+  reporting 3 was allocating and filling 2.25x the pixels for a difference invisible on flat white
+  lines over black. `backingScale` also floors a missing, zero, or negative ratio at 1, which some
+  embedded webviews report and which would otherwise render a blank canvas.
+- `tests/render.test.js`: two cases covering the cap at DPR 3 and 4, pass-through at 1 and 2, and the
+  degenerate inputs `undefined`, `null`, `0`, `-1`, and `NaN`.
+
+**Changed**
+- `src/render.js`: the fog fade and the blob halo are built once per radius and reused, drawn by
+  translating the canvas to the blob rather than rebuilding a gradient at a new centre every frame.
+- `src/render.js`: `shadowBlur` is gone, replaced by the cached halo gradient. Canvas shadow blur is
+  among the slowest 2D operations and is worst on the mobile GPUs this has to run on. The glow reads
+  the same; the screenshot confirms it.
+- `src/render.js`: segment endpoints are computed inline instead of through `toPixels`, so a frame
+  allocates nothing per segment. `toPixels` stays exported for tests and other callers.
+- `src/render.js`: a frame whose blob has not moved and whose canvas has not resized is skipped
+  entirely. This is where most of the battery saving is, since a player pausing to think currently
+  costs the same as one sprinting.
+- `src/main.js`: resize events are coalesced into a single `requestAnimationFrame`, and
+  `orientationchange` is handled too. A mobile browser fires resize continuously while its address
+  bar slides, and each one reallocated the backing store.
+- `src/input.js`: the D-pad suppresses `contextmenu`, so a long press cannot raise the menu, steal
+  the pointer, and leave a direction stuck on.
+- `src/styles.css`: `overscroll-behavior: none` and `touch-action: none` so pull-to-refresh cannot
+  fire mid-glide; `100dvh` alongside the `100vh` fallback for the canvas and the title and select
+  screens; `-webkit-touch-callout: none` and `user-select: none` on the D-pad.
+- `src/index.html`: `type="button"` on the four D-pad buttons.
+- `SPEC.md`: section 10 gains the DPR cap and the frame-cost rules, section 11 the mobile viewport
+  rules.
+
+**Deleted**
+- The `BLOB_GLOW` constant, replaced by `BLOB_HALO` now that the glow is a gradient rather than a
+  shadow.
+
+**Notes**
+- Red run first: both `backingScale` cases failed against a stub that returned its argument.
+- **A spatial index was considered and deliberately rejected.** Measured, the bounding-box cull costs
+  0.019 ms (EASY) to 0.072 ms (HARD) per frame against a 16.7 ms budget, and already reduces 625
+  segments to 6 drawn. `SPEC.md` now records the measurement so the next person does not rebuild it
+  on instinct.
+- The benchmark harness measures JavaScript-side command submission, not rasterization, since canvas
+  work is deferred. The DPR figure above is therefore stated as a pixel count, which is exact, rather
+  than as a millisecond saving, which that harness cannot honestly claim.
+- Verified after the rewrite in real Chrome: title to select to playing, no console errors, no CSP
+  violations, and a screenshot at an emulated 390x844 phone viewport confirming the halo, the fog
+  fade, and correct centring.
+
 ## Security - Audit, escape inlined sources, and add a CSP - 2026-07-29 11:43 PM EDT
 
 Full audit of the app and its build. The attack surface is genuinely small and worth stating plainly:

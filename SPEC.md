@@ -243,9 +243,27 @@ mutates its input. The module knows nothing of `document`, `window`, `Date`, or 
 - The exit is **not** marked or highlighted. Marking it would leak the goal through the fog and
   weaken the prank.
 - Nothing else is drawn during `playing`: no HUD, no timer, no hit counter, no minimap.
-- The canvas backing store accounts for `devicePixelRatio` so lines stay crisp on retina and mobile.
+- The canvas backing store accounts for `devicePixelRatio` so lines stay crisp on retina and mobile,
+  but the ratio is **capped at 2**. A phone reporting 3 would otherwise allocate and fill 9x the
+  pixels every frame for a difference no one can see on a maze drawn in flat white on black.
 - Rendering is a pure function of state plus canvas size and never mutates game state. A resize
   recomputes the transform only; the blob keeps its position in the maze.
+
+Frame cost rules, which exist because this runs on phones:
+
+- **Nothing is allocated per frame.** The fog gradient and the blob's halo are built once per radius
+  and reused, drawn by translating the canvas rather than by rebuilding a gradient at a new centre.
+  Segment drawing computes pixel coordinates inline rather than allocating a point per endpoint.
+- **No `shadowBlur`.** The blob's glow is a cached radial gradient. Canvas shadow blur is among the
+  most expensive 2D operations and is worst on exactly the mobile GPUs this needs to run on.
+- **A frame that would not change anything is skipped.** If the blob has not moved and the canvas has
+  not been resized since the last draw, the draw is skipped entirely.
+- Resize events are coalesced into a single `requestAnimationFrame`, because a mobile browser fires
+  them continuously while its address bar slides and each one otherwise reallocates the backing
+  store.
+- Segment culling stays a plain bounding-box scan. Measured at 0.02 ms (EASY) to 0.07 ms (HARD) per
+  frame against a 16.7 ms budget, with 625 segments reduced to 6 drawn, so a spatial index would buy
+  nothing. Measure before replacing it.
 
 ## 11. Input
 
@@ -269,6 +287,11 @@ mutates its input. The module knows nothing of `document`, `window`, `Date`, or 
 - Handled keys call `preventDefault()` so arrow keys never scroll the page. The viewport disables
   pinch-zoom so D-pad taps do not zoom, and the buttons set `touch-action: none` so a hold is not
   read as a scroll.
+- The page suppresses `overscroll-behavior` so pull-to-refresh cannot fire mid-glide, and the D-pad
+  suppresses the long-press context menu and the iOS callout, both of which otherwise interrupt a
+  held direction.
+- Full-viewport heights use `dvh` where supported, falling back to `vh`. A mobile browser's sliding
+  address bar makes `vh` the wrong height for most of a session.
 - `pointerup` and `pointercancel` are bound on `window` as well as on the buttons, because a finger
   released outside a button's bounds would otherwise leave the blob stuck moving. That window-level
   release clears **only the D-pad codes**, never held keyboard keys: a mouse click anywhere on the

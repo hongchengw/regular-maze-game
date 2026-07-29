@@ -92,6 +92,10 @@ export function createInput(dpadElement) {
     return { button, press, release };
   });
 
+  // A long press on a D-pad button would otherwise raise the context menu on mobile, which steals
+  // the pointer and leaves the direction held.
+  const onContextMenu = (event) => event.preventDefault();
+
   function attach() {
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
@@ -99,6 +103,8 @@ export function createInput(dpadElement) {
     document.addEventListener('visibilitychange', clear);
     window.addEventListener('pointerup', onPointerRelease);
     window.addEventListener('pointercancel', onPointerRelease);
+
+    if (dpadElement) dpadElement.addEventListener('contextmenu', onContextMenu);
 
     for (const { button, press, release } of bound) {
       button.addEventListener('pointerdown', press);
@@ -115,6 +121,8 @@ export function createInput(dpadElement) {
     document.removeEventListener('visibilitychange', clear);
     window.removeEventListener('pointerup', onPointerRelease);
     window.removeEventListener('pointercancel', onPointerRelease);
+
+    if (dpadElement) dpadElement.removeEventListener('contextmenu', onContextMenu);
 
     for (const { button, press, release } of bound) {
       button.removeEventListener('pointerdown', press);

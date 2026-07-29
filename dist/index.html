@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; script-src 'sha256-UtCjFLzRakqkrRiIKaSvBWH/LX0LIjqhclb8iqOk0oE='; style-src 'sha256-jbP9oXcPQSia3AR3n720+R3PpDcxpmNogs1cprq/CgI='; base-uri 'none'; form-action 'none'" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; script-src 'sha256-23Nm5xKRuvJklgkI/Z+QVTZW73CoI0loGj85lIJl18U='; style-src 'sha256-q1bazI/lmhOKPhoYgeQXbE0bUH1E7xt6DsZomNJbuKo='; base-uri 'none'; form-action 'none'" />
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
@@ -14,14 +14,21 @@ body {
   background: #000;
   height: 100%;
   overflow: hidden;
+  /* Pull-to-refresh and scroll chaining must not fire mid-glide on a phone. */
+  overscroll-behavior: none;
+  touch-action: none;
+  -webkit-text-size-adjust: 100%;
 }
 
-/* The canvas fills the viewport; the renderer handles devicePixelRatio itself. */
+/* The canvas fills the viewport; the renderer handles devicePixelRatio itself.
+   `dvh` tracks a mobile browser's sliding address bar, which `vh` does not. */
 #canvas {
   display: block;
   width: 100vw;
   height: 100vh;
+  height: 100dvh;
   background: #000;
+  touch-action: none;
 }
 
 /* One screen per phase, driven entirely by the data-phase attribute on body. No imperative
@@ -40,6 +47,7 @@ body[data-phase='playing'] [data-screen='playing'] {
 [data-screen='select'] {
   position: fixed;
   inset: 0;
+  height: 100dvh;
   flex-direction: column;
   align-items: center;
   justify-content: flex-end;
@@ -111,6 +119,9 @@ body[data-phase='playing'] [data-screen='playing'] {
   background: rgba(255, 255, 255, 0.08);
   touch-action: none;
   -webkit-tap-highlight-color: transparent;
+  /* A long press must not raise the iOS callout or a selection while a direction is held. */
+  -webkit-touch-callout: none;
+  user-select: none;
 }
 
 .dpad button:active {
@@ -178,10 +189,10 @@ body[data-phase='scare'] .dpad {
     </div>
 
     <div class="dpad" id="dpad">
-      <button class="dpad-up" data-code="dpad-up" aria-label="Move up"></button>
-      <button class="dpad-left" data-code="dpad-left" aria-label="Move left"></button>
-      <button class="dpad-right" data-code="dpad-right" aria-label="Move right"></button>
-      <button class="dpad-down" data-code="dpad-down" aria-label="Move down"></button>
+      <button type="button" class="dpad-up" data-code="dpad-up" aria-label="Move up"></button>
+      <button type="button" class="dpad-left" data-code="dpad-left" aria-label="Move left"></button>
+      <button type="button" class="dpad-right" data-code="dpad-right" aria-label="Move right"></button>
+      <button type="button" class="dpad-down" data-code="dpad-down" aria-label="Move down"></button>
     </div>
 
     <div class="jumpscare" id="jumpscare"><img alt="" /></div>
@@ -580,11 +591,22 @@ function step(state, dt, input) {
 /** Fraction of the shorter viewport axis the maze fills, leaving a margin. */
 const FIT = 0.92;
 
+/**
+ * Ceiling on the canvas backing store's pixel ratio. A phone reporting 3 would fill nine times the
+ * pixels every frame for a difference no one can see on flat white lines over black.
+ */
+const MAX_DPR = 2;
+
+/** Usable backing-store ratio: capped, and never zero or missing, which would render blank. */
+function backingScale(dpr) {
+  return Number.isFinite(dpr) && dpr > 1 ? Math.min(dpr, MAX_DPR) : 1;
+}
+
 /** Fraction of the fog radius that is fully clear before the edge starts fading. */
 const FOG_CLEAR = 0.75;
 
-/** Pixels of glow around the blob, at a scale of 1 cell per pixel. */
-const BLOB_GLOW = 0.35;
+/** How far the blob's glow reaches, as a multiple of the blob radius. */
+const BLOB_HALO = 2;
 
 /**
  * Fit a `cols` x `rows` maze into a viewport. Aspect independent: rotating the device yields the
@@ -637,30 +659,79 @@ function createRenderer(canvas) {
   let viewW = 0;
   let viewH = 0;
 
+  // Gradients are built once per radius and reused by translating the canvas to the blob, rather
+  // than rebuilt every frame at a new centre. Both are the same shape wherever the blob is.
+  let fogFade = null;
+  let fogFadeRadius = 0;
+  let blobHalo = null;
+  let blobHaloRadius = 0;
+
+  // Last drawn frame, so a frame that would change nothing can be skipped outright.
+  let lastX = NaN;
+  let lastY = NaN;
+  let lastW = 0;
+  let lastH = 0;
+
   function resize() {
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = backingScale(window.devicePixelRatio);
     viewW = canvas.clientWidth;
     viewH = canvas.clientHeight;
     canvas.width = Math.round(viewW * dpr);
     canvas.height = Math.round(viewH * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    lastX = NaN;
+  }
+
+  /** Transparent at the clear radius, opaque black at the edge. Centred on the origin. */
+  function fadeFor(radius) {
+    if (fogFade && fogFadeRadius === radius) return fogFade;
+    fogFade = ctx.createRadialGradient(0, 0, radius * FOG_CLEAR, 0, 0, radius);
+    fogFade.addColorStop(0, 'rgba(0, 0, 0, 0)');
+    fogFade.addColorStop(1, 'rgba(0, 0, 0, 1)');
+    fogFadeRadius = radius;
+    return fogFade;
+  }
+
+  /** The blob's soft edge, replacing a per-frame `shadowBlur`. Centred on the origin. */
+  function haloFor(radius) {
+    if (blobHalo && blobHaloRadius === radius) return blobHalo;
+    blobHalo = ctx.createRadialGradient(0, 0, radius * 0.5, 0, 0, radius * BLOB_HALO);
+    blobHalo.addColorStop(0, 'rgba(255, 255, 255, 1)');
+    blobHalo.addColorStop(0.5, 'rgba(255, 255, 255, 0.35)');
+    blobHalo.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    blobHaloRadius = radius;
+    return blobHalo;
   }
 
   function draw(state) {
+    if (state.phase !== 'playing') {
+      ctx.fillStyle = '#000';
+      ctx.fillRect(0, 0, viewW, viewH);
+      lastX = NaN;
+      return;
+    }
+
+    const { level, pos, segments } = state;
+
+    // Nothing moved and nothing resized, so the last frame is still correct.
+    if (pos.x === lastX && pos.y === lastY && viewW === lastW && viewH === lastH) return;
+    lastX = pos.x;
+    lastY = pos.y;
+    lastW = viewW;
+    lastH = viewH;
+
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, viewW, viewH);
 
-    if (state.phase !== 'playing') return;
-
-    const { level, pos, segments } = state;
     const t = fitTransform(viewW, viewH, state.maze.cols, state.maze.rows);
-    const blob = toPixels(pos.x, pos.y, t);
+    const blobX = t.offsetX + pos.x * t.scale;
+    const blobY = t.offsetY + pos.y * t.scale;
     const fog = fogRadiusPx(level, t.scale);
 
     // Walls, clipped to the fog disc. Everything outside it stays the black already painted.
     ctx.save();
     ctx.beginPath();
-    ctx.arc(blob.x, blob.y, fog, 0, Math.PI * 2);
+    ctx.arc(blobX, blobY, fog, 0, Math.PI * 2);
     ctx.clip();
 
     ctx.strokeStyle = '#fff';
@@ -669,32 +740,37 @@ function createRenderer(canvas) {
     ctx.beginPath();
     for (const seg of segments) {
       if (outsideFog(seg, pos.x, pos.y, level.fogRadius)) continue;
-      const a = toPixels(seg.x1, seg.y1, t);
-      const b = toPixels(seg.x2, seg.y2, t);
-      ctx.moveTo(a.x, a.y);
-      ctx.lineTo(b.x, b.y);
+      // Inline rather than via `toPixels`, to allocate nothing per segment per frame.
+      ctx.moveTo(t.offsetX + seg.x1 * t.scale, t.offsetY + seg.y1 * t.scale);
+      ctx.lineTo(t.offsetX + seg.x2 * t.scale, t.offsetY + seg.y2 * t.scale);
     }
     ctx.stroke();
     ctx.restore();
 
+    // Everything from here is drawn around the origin, with the canvas translated to the blob, so
+    // the cached gradients stay valid wherever the blob is.
+    ctx.save();
+    ctx.translate(blobX, blobY);
+
     // Fade the outer quarter of the disc to black, so the fog edge is not a cookie cutter.
-    const fade = ctx.createRadialGradient(blob.x, blob.y, fog * FOG_CLEAR, blob.x, blob.y, fog);
-    fade.addColorStop(0, 'rgba(0, 0, 0, 0)');
-    fade.addColorStop(1, 'rgba(0, 0, 0, 1)');
-    ctx.fillStyle = fade;
+    ctx.fillStyle = fadeFor(fog);
     ctx.beginPath();
-    ctx.arc(blob.x, blob.y, fog, 0, Math.PI * 2);
+    ctx.arc(0, 0, fog, 0, Math.PI * 2);
     ctx.fill();
 
     // The blob. Nothing else is drawn: no HUD, no timer, no hit counter, and no exit marker, since
     // marking the exit would leak the goal through the fog.
-    ctx.save();
-    ctx.shadowColor = '#fff';
-    ctx.shadowBlur = BLOB_GLOW * t.scale;
+    const blobRadius = level.blobRadius * t.scale;
+    ctx.fillStyle = haloFor(blobRadius);
+    ctx.beginPath();
+    ctx.arc(0, 0, blobRadius * BLOB_HALO, 0, Math.PI * 2);
+    ctx.fill();
+
     ctx.fillStyle = '#fff';
     ctx.beginPath();
-    ctx.arc(blob.x, blob.y, level.blobRadius * t.scale, 0, Math.PI * 2);
+    ctx.arc(0, 0, blobRadius, 0, Math.PI * 2);
     ctx.fill();
+
     ctx.restore();
   }
 
@@ -795,6 +871,10 @@ function createInput(dpadElement) {
     return { button, press, release };
   });
 
+  // A long press on a D-pad button would otherwise raise the context menu on mobile, which steals
+  // the pointer and leaves the direction held.
+  const onContextMenu = (event) => event.preventDefault();
+
   function attach() {
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
@@ -802,6 +882,8 @@ function createInput(dpadElement) {
     document.addEventListener('visibilitychange', clear);
     window.addEventListener('pointerup', onPointerRelease);
     window.addEventListener('pointercancel', onPointerRelease);
+
+    if (dpadElement) dpadElement.addEventListener('contextmenu', onContextMenu);
 
     for (const { button, press, release } of bound) {
       button.addEventListener('pointerdown', press);
@@ -818,6 +900,8 @@ function createInput(dpadElement) {
     document.removeEventListener('visibilitychange', clear);
     window.removeEventListener('pointerup', onPointerRelease);
     window.removeEventListener('pointercancel', onPointerRelease);
+
+    if (dpadElement) dpadElement.removeEventListener('contextmenu', onContextMenu);
 
     for (const { button, press, release } of bound) {
       button.removeEventListener('pointerdown', press);
@@ -1089,7 +1173,20 @@ screensEl.addEventListener('click', (event) => {
   if (button) state = startLevel(state, button.dataset.level, freshSeed());
 });
 
-window.addEventListener('resize', () => renderer.resize());
+// A mobile browser fires resize continuously while its address bar slides, and each one reallocates
+// the canvas backing store, so they are coalesced into one per frame.
+let resizeQueued = false;
+function queueResize() {
+  if (resizeQueued) return;
+  resizeQueued = true;
+  requestAnimationFrame(() => {
+    resizeQueued = false;
+    renderer.resize();
+  });
+}
+
+window.addEventListener('resize', queueResize);
+window.addEventListener('orientationchange', queueResize);
 
 // One loop in every phase, since `step` also advances the scare clock.
 function frame(now) {

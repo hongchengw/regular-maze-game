@@ -62,7 +62,20 @@ screensEl.addEventListener('click', (event) => {
   if (button) state = startLevel(state, button.dataset.level, freshSeed());
 });
 
-window.addEventListener('resize', () => renderer.resize());
+// A mobile browser fires resize continuously while its address bar slides, and each one reallocates
+// the canvas backing store, so they are coalesced into one per frame.
+let resizeQueued = false;
+function queueResize() {
+  if (resizeQueued) return;
+  resizeQueued = true;
+  requestAnimationFrame(() => {
+    resizeQueued = false;
+    renderer.resize();
+  });
+}
+
+window.addEventListener('resize', queueResize);
+window.addEventListener('orientationchange', queueResize);
 
 // One loop in every phase, since `step` also advances the scare clock.
 function frame(now) {
