@@ -2,6 +2,32 @@
 
 Newest first. One entry per completed task.
 
+## Task 04 - Difficulty tuning table - 2026-07-29 11:31 PM EDT
+
+**Added**
+- `src/difficulty.js`: the frozen `DIFFICULTY` table for EASY, MEDIUM, and HARD, matching `SPEC.md`
+  section 8 number for number; `LEVELS` in display order so the select screen cannot drift from the
+  table; and `clearance(level)`, the corridor slack `0.5 - (blobRadius + wallHalfThickness)`.
+- `tests/difficulty.test.js`, 11 cases: exactly three levels in `LEVELS` order, every field finite,
+  the table and each level frozen against a strict-mode assignment, grid size rising and fog radius
+  and clearance falling across the three levels, the `blobRadius + wallHalfThickness < 0.5`
+  playability guard, `fogRadius > blobRadius * 2`, square grids, `blobRadius / 2 < exitRadius`, and
+  an integration case generating and solving a real maze at each level with both the start and exit
+  cell centres wall-free under that level's radii.
+
+**Changed**
+- Nothing. `SPEC.md` section 8 already carried the table and its derived invariants.
+
+**Deleted**
+- Nothing.
+
+**Notes**
+- Red run against a stub whose three levels were identical and unfrozen: 7 of 11 cases failed on
+  their assertions, including every monotonicity case and the frozen-table case. The four that
+  passed vacuously are covered by the real table.
+- The brief lists 10 cases. An eleventh was added for `blobRadius / 2 < exitRadius`, which `SPEC.md`
+  section 14 lists as an invariant but which no other task's tests assert.
+
 ## Task 03 - Swept circle collision - 2026-07-29 11:24 PM EDT
 
 **Added**
