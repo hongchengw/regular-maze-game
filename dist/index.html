@@ -89,6 +89,17 @@ body {
   height: 100%;
   object-fit: cover;
   display: block;
+}
+
+/* While the scare is up nothing else exists: no cursor, no D-pad, no canvas, no text. Every other
+   element is hidden rather than merely covered. */
+body[data-phase='scare'] {
+  cursor: none;
+}
+
+body[data-phase='scare'] #screens,
+body[data-phase='scare'] .dpad {
+  display: none;
 }</style>
   </head>
   <body data-phase="title">
@@ -98,6 +109,8 @@ body {
       <button class="dpad-right" data-code="dpad-right" aria-label="Move right"></button>
       <button class="dpad-down" data-code="dpad-down" aria-label="Move down"></button>
     </div>
+
+    <div class="jumpscare" id="jumpscare"><img alt="" /></div>
 
     <script type="module">
 const JUMPSCARE_SRC = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFElEQVR42mPgIhEwjGoY1TB8NQAA9bMeAeVRnTAAAAAASUVORK5CYII=";

@@ -2,6 +2,41 @@
 
 Newest first. One entry per completed task.
 
+## Task 09 - Fullscreen jumpscare overlay - 2026-07-29 11:29 PM EDT
+
+**Added**
+- `src/jumpscare.js`: `createJumpscare(overlayEl, imgEl, audio, imageSrc)` returning `show()` and
+  `hide()`. The image source is assigned at construction, not on `show()`, so the first frame is
+  never blank. `show()` reveals the overlay and plays the scream inside a `try/catch`, so a failing
+  audio layer never takes the image down with it. There is no timer in the module: the 10-second
+  clock is `game.step`'s, which means one clock, no drift, and no orphaned timer.
+- `src/index.html`: the overlay element containing exactly one `<img alt="" />`. The empty alt is
+  correct, since the image is decorative in the accessibility tree.
+- `tests/jumpscare.test.js`, 10 cases: `SCARE_DURATION === 10`, the six silent seconds asserted
+  rather than left incidental, the phase boundary checked from both sides at 9.999s and 10.0s, the
+  post-scare state deep-equalling a fresh game, the title screen staying inert under movement input,
+  a stylesheet scan for `animation`, `transition`, and `@keyframes`, a markup scan proving the
+  overlay holds no text and no buttons, a source scan for `setTimeout`/`setInterval`, the preload and
+  scream behaviour of `show`, and a throwing audio layer not blocking the image.
+
+**Changed**
+- `src/styles.css`: `cursor: none` during the scare, and `#screens` and `.dpad` hidden under
+  `body[data-phase='scare']`, so every other element is hidden rather than merely covered.
+
+**Deleted**
+- Nothing. There is no "YOU GOT PRANKED" screen and no PLAY AGAIN button to remove; neither was ever
+  built. The title screen's START button is the replay path.
+
+**Notes**
+- Red run against a stub that owned the duration with a `setTimeout`, loaded the image on show, and
+  let an audio failure escape: 4 of 10 cases failed on their assertions. The six that passed were the
+  cross-module timing guards already satisfied by `game.js` and `audio.js` from tasks 05 and 08.
+- The no-flashes and no-other-UI guards read `src/styles.css` and `src/index.html` as text on
+  purpose. They encode absolutes, so they should fail the build rather than rely on someone
+  re-reading the spec.
+- The stopwatch check, the nothing-else-visible check, and the phone orientation check are still
+  outstanding: there is no entry point to open until task 10 wires it.
+
 ## Task 08 - Synthesized scream - 2026-07-29 11:21 PM EDT
 
 **Added**
