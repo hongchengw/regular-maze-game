@@ -2,7 +2,37 @@
 
 Newest first. One entry per completed task.
 
-## Task 05 - Game phase machine - 2026-07-29 11:45 PM EDT
+## Task 06 - Canvas rendering with fog of war - 2026-07-29 11:08 PM EDT
+
+**Added**
+- `src/render.js`: the pure transform helpers `fitTransform`, `toPixels`, `toCells`,
+  `strokeWidthPx`, and `fogRadiusPx`, plus the `FIT` constant. `strokeWidthPx` is exactly
+  `wallHalfThickness * 2 * scale`, so the drawn line is the geometry collision uses.
+- `createRenderer(canvas)` with `resize()` and `draw(state)`. `resize` sizes the backing store by
+  `devicePixelRatio` and `draw` fills black, clips to the fog disc, strokes the walls white, paints a
+  radial gradient over the outer 25% of the disc so the fog edge fades, and draws the blob with a
+  glow. Segments whose bounding box lies outside the fog disc are culled, which on HARD drops roughly
+  1100 draw calls to a handful.
+- `tests/render.test.js`, 6 cases: centring, aspect independence with swapped offsets, a
+  no-overflow sweep across five viewports and all three grid sizes, the pixel round-trip, the stroke
+  width identity, and fog radius ordering.
+
+**Changed**
+- `src/styles.css`: full-height black page with `overflow: hidden`, and a `#canvas` rule filling the
+  viewport as a block element.
+
+**Deleted**
+- Nothing.
+
+**Notes**
+- Red run against a stub fitting the longer axis with no margin and no offsets: 5 of 6 cases failed
+  on their assertions.
+- No canvas mock. Compositing, the gradient, and the glow are on the manual checklist in the brief,
+  which is still outstanding: the app has no entry point to open until task 10 wires it.
+- Nothing is drawn during `playing` but maze, blob, and black. There is no exit marker, which would
+  leak the goal through the fog, and no HUD.
+
+## Task 05 - Game phase machine - 2026-07-29 11:05 PM EDT
 
 **Added**
 - `src/game.js`: `createGame`, `pressStart`, `startLevel`, and `step`, plus the `MAX_DT` (0.05s) and
@@ -34,7 +64,7 @@ Newest first. One entry per completed task.
 - Movement tests run on a copied state with `segments: []` so an open corridor is guaranteed and the
   assertions are about the movement maths, not about which seed happens to carve a straight run.
 
-## Task 04 - Difficulty tuning table - 2026-07-29 11:31 PM EDT
+## Task 04 - Difficulty tuning table - 2026-07-29 11:03 PM EDT
 
 **Added**
 - `src/difficulty.js`: the frozen `DIFFICULTY` table for EASY, MEDIUM, and HARD, matching `SPEC.md`
@@ -60,7 +90,7 @@ Newest first. One entry per completed task.
 - The brief lists 10 cases. An eleventh was added for `blobRadius / 2 < exitRadius`, which `SPEC.md`
   section 14 lists as an invariant but which no other task's tests assert.
 
-## Task 03 - Swept circle collision - 2026-07-29 11:24 PM EDT
+## Task 03 - Swept circle collision - 2026-07-29 11:01 PM EDT
 
 **Added**
 - `src/collision.js` with `distancePointSegment`, `hitsWall`, and `sweep`. Contact is the blob
@@ -90,7 +120,7 @@ Newest first. One entry per completed task.
   `(0.5, 0.5)` to `(0.5, 5.5)` across five walls while still passing the clear-move case.
 - No broad phase. Under 1200 segments per frame at HARD, so measure before optimizing.
 
-## Task 02 - Seeded maze generation - 2026-07-29 11:12 PM EDT
+## Task 02 - Seeded maze generation - 2026-07-29 10:59 PM EDT
 
 **Added**
 - `src/rng.js`: `mulberry32(seed)`, the published float stream, kept verbatim so a seed yields the

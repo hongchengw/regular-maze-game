@@ -11,6 +11,16 @@
 body {
   margin: 0;
   background: #000;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* The canvas fills the viewport; the renderer handles devicePixelRatio itself. */
+#canvas {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+  background: #000;
 }
 
 /* The jumpscare overlay. No animation, no transition, no keyframes, ever. */
