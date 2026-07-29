@@ -56,8 +56,10 @@ startButton.addEventListener('click', () => {
 });
 
 screensEl.addEventListener('click', (event) => {
-  const level = event.target.dataset.level;
-  if (level) state = startLevel(state, level, freshSeed());
+  // `closest` rather than the raw target, so a click landing on anything inside a level button
+  // still counts as a click on that button.
+  const button = event.target.closest('[data-level]');
+  if (button) state = startLevel(state, button.dataset.level, freshSeed());
 });
 
 window.addEventListener('resize', () => renderer.resize());

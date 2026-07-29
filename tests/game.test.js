@@ -51,6 +51,18 @@ test('invalid level rejected', () => {
   assert.throws(() => startLevel(pressStart(createGame()), 'NIGHTMARE', 1), /NIGHTMARE/);
 });
 
+test('an inherited key is not a level', () => {
+  // These all return something truthy from a plain object, so a bare truthiness guard would let
+  // them through and fail later with an arithmetic error from the maze generator instead.
+  for (const key of ['__proto__', 'constructor', 'toString', 'valueOf', 'hasOwnProperty']) {
+    assert.throws(
+      () => startLevel(pressStart(createGame()), key, 1),
+      /Unknown level/,
+      `${key} should be rejected as an unknown level, by the level guard itself`,
+    );
+  }
+});
+
 test('scare to title after 10s', () => {
   const scared = { ...openField('EASY', 4), phase: 'scare', scareElapsed: 0 };
 

@@ -47,6 +47,30 @@ about.
 - An unresolvable import fails the build loudly with the offending path, rather than emitting a
   broken bundle.
 
+**Inlining is escaped.** Module bodies land inside a `<script>` block and the stylesheet inside a
+`<style>` block, so a source file containing `</script>`, `</style>`, or `<!--` would otherwise close
+its own block and inject arbitrary markup into the artifact.
+
+- In the JavaScript payload the bundler rewrites `</script` to `<\/script` and `<!--` to `<\!--`.
+  Both forms are valid inside string literals, comments, and regular expressions, so the escape can
+  never change the meaning of the code.
+- CSS has no equivalent safe escape, so a stylesheet containing `</style` **fails the build** with the
+  offending file named, rather than shipping a bundle that can be broken out of.
+
+**The bundle carries a Content-Security-Policy.** A `<meta http-equiv="Content-Security-Policy">` in
+`<head>`, before the script, enforces the zero-external-requests rule at runtime rather than leaving
+it to a grep in the test suite:
+
+```
+default-src 'none'; img-src data:; script-src 'sha256-...'; style-src 'sha256-...';
+base-uri 'none'; form-action 'none'
+```
+
+The two hashes are computed at build time over exactly the script and style text that ships, so a
+tampered or accidentally corrupted bundle refuses to execute rather than running modified code.
+`frame-ancestors` is deliberately absent: it is ignored in a `<meta>` policy, and embedding the game
+bypasses nothing, since an embedder still gets the title screen and its warning.
+
 ## 4. Assets
 
 `assets/jumpscare.png` is supplied by the user. The committed file is a placeholder. Replacing the
@@ -151,7 +175,9 @@ title --START--> select --level chosen--> playing --exit reached--> scare --afte
 
 - `title`: no game state exists yet.
 - `select`: choosing a level generates a maze from a fresh seed and enters `playing`. An unknown
-  level name throws.
+  level name throws. The lookup checks **own** properties only, so an inherited key such as
+  `__proto__`, `constructor`, or `toString` is an unknown level like any other and raises the same
+  error, rather than passing a truthiness guard and failing later with an arithmetic message.
 - `playing`: the blob starts at the centre of cell `(0, 0)` and glides at `speed` cells per second
   in the held direction. Movement is resolved by the sweep in section 7.
 - **Wall hit:** the blob's position resets to the start cell centre. The maze layout is unchanged and
@@ -233,7 +259,8 @@ mutates its input. The module knows nothing of `document`, `window`, `Date`, or 
 - Keyboard codes and D-pad ids share one map and one code path, so desktop and touch produce
   identical movement.
 - Opposite directions held simultaneously cancel: `left + right` gives `dx = 0`. Unknown codes are
-  ignored.
+  ignored, and "unknown" is decided by **own** properties of the key map, so an inherited key such as
+  `constructor` or `toString` is ignored like any other unrecognised code.
 - The vector is raw, for example `up + right` is `{dx: 1, dy: -1}`. Normalization is `step`'s job.
 - The D-pad is visible only during `playing`, and only where a coarse pointer is present. It never
   appears on the title, select, or scare screens.
@@ -243,7 +270,9 @@ mutates its input. The module knows nothing of `document`, `window`, `Date`, or 
   pinch-zoom so D-pad taps do not zoom, and the buttons set `touch-action: none` so a hold is not
   read as a scroll.
 - `pointerup` and `pointercancel` are bound on `window` as well as on the buttons, because a finger
-  released outside a button's bounds would otherwise leave the blob stuck moving.
+  released outside a button's bounds would otherwise leave the blob stuck moving. That window-level
+  release clears **only the D-pad codes**, never held keyboard keys: a mouse click anywhere on the
+  page must not stop a blob being glided with WASD.
 
 ## 12. Audio
 
@@ -305,7 +334,12 @@ are readable in one place.
 - **Never persists.** No `localStorage`, `sessionStorage`, `indexedDB`, or `document.cookie` anywhere
   in `src/`. No scores, no settings, no progress.
 - **Never networks.** No `fetch`, no `XMLHttpRequest`, no `http://` or `https://` in the bundle.
-  Opening `dist/index.html` shows only the document itself in the Network tab.
+  Opening `dist/index.html` shows only the document itself in the Network tab. The Content-Security-
+  Policy in section 3 enforces this at runtime as well as in the tests.
+- **Never breaks out of its own blocks.** No inlined source can terminate the `<script>` or `<style>`
+  block that carries it. The bundle's inline script and style match the CSP hashes that ship with it.
+- **Never trusts an inherited key.** Every lookup of a caller-supplied string against a map checks
+  own properties only.
 - **No flashes** in the jumpscare styles.
 - **No exit marker and no HUD** during `playing`.
 - The warning text appears verbatim in the bundle.

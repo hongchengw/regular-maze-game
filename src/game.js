@@ -39,8 +39,12 @@ export function pressStart(state) {
 
 /** Select to playing: carve a maze from `seed` and place the blob in the centre of cell (0,0). */
 export function startLevel(state, levelName, seed) {
+  // Own properties only. `__proto__`, `constructor`, and friends all return something truthy from a
+  // plain object, so a bare lookup would pass this guard and fail later with a confusing error.
+  const known = Object.prototype.hasOwnProperty.call(DIFFICULTY, levelName);
+  if (!known) throw new Error(`Unknown level '${levelName}'`);
+
   const level = DIFFICULTY[levelName];
-  if (!level) throw new Error(`Unknown level '${levelName}'`);
 
   const maze = generate(level.cols, level.rows, mulberry32(seed));
   const start = { x: 0.5, y: 0.5 };

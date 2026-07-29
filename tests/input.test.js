@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { KEY_MAP, isGameKey, vectorFrom } from '../src/input.js';
+import { KEY_MAP, isGameKey, isPointerCode, vectorFrom } from '../src/input.js';
 
 const held = (...codes) => vectorFrom(new Set(codes));
 
@@ -69,4 +69,27 @@ test('isGameKey identifies handled codes', () => {
 
 test('the key map is frozen', () => {
   assert.ok(Object.isFrozen(KEY_MAP), 'the shared map must not be mutable at runtime');
+});
+
+test('inherited keys are not directions', () => {
+  // Every one of these returns something truthy from a plain object, so a bare lookup would treat
+  // them as a mapped direction rather than as the unknown codes they are.
+  assert.deepEqual(vectorFrom(new Set(['constructor', 'toString', '__proto__', 'valueOf'])), {
+    dx: 0,
+    dy: 0,
+  });
+  assert.equal(isGameKey('constructor'), false, 'nor may they be preventDefaulted');
+  assert.equal(isGameKey('__proto__'), false);
+});
+
+test('isPointerCode identifies only the d-pad', () => {
+  for (const code of ['dpad-up', 'dpad-down', 'dpad-left', 'dpad-right']) {
+    assert.equal(isPointerCode(code), true, `${code} is released by a pointer`);
+  }
+
+  // A window-level pointer release must not clear these, or a mouse click anywhere on the page
+  // would stop a blob being glided with the keyboard.
+  for (const code of ['KeyW', 'ArrowUp', 'KeyD', 'constructor']) {
+    assert.equal(isPointerCode(code), false, `${code} is not a d-pad code`);
+  }
 });

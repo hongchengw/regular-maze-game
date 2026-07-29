@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -9,6 +11,17 @@ import { build, resolveGraph, stripModuleSyntax } from '../build/build.js';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
 const fixtures = path.join(here, 'fixtures');
+
+/** Build a fixture source tree to a throwaway file, so dist/ is never touched by these cases. */
+function buildFixture(name) {
+  return build({
+    srcDir: path.join(fixtures, name),
+    assetFile: path.join(root, 'assets', 'jumpscare.png'),
+    outFile: path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'maze-build-')), 'index.html'),
+  });
+}
+
+const sha256 = (text) => crypto.createHash('sha256').update(text, 'utf8').digest('base64');
 
 /** Concatenate a fixture graph the way build() does, so order is observable. */
 function bundleFixture(entry) {
@@ -56,6 +69,70 @@ test('output inlines the jumpscare asset', () => {
   const decoded = Buffer.from(match[1], 'base64');
   const onDisk = fs.readFileSync(path.join(root, 'assets', 'jumpscare.png'));
   assert.equal(decoded.length, onDisk.length, 'decoded bytes should match the file on disk');
+});
+
+test('an inlined module cannot close the script block', () => {
+  const hostile = buildFixture('hostile-js');
+  const scriptBlock = hostile.match(/<script type="module">([\s\S]*?)<\/script>/);
+
+  assert.ok(scriptBlock, 'the output should still have exactly one script block');
+  assert.ok(
+    !scriptBlock[1].includes('</script'),
+    'a source string containing </script> must not terminate the block that carries it',
+  );
+  assert.ok(!scriptBlock[1].includes('<!--'), 'nor may it open an HTML comment');
+  assert.ok(
+    !/<img src=x onerror=/.test(hostile.replace(scriptBlock[0], '')),
+    'nothing from the module body may escape into the document as markup',
+  );
+});
+
+test('the escape keeps the script valid and its meaning intact', () => {
+  const hostile = buildFixture('hostile-js');
+  const body = hostile.match(/<script type="module">([\s\S]*?)<\/script>/)[1];
+
+  // The escaped source must still parse, and the string must still hold what it held.
+  const read = new Function(`${body}\nreturn { TAUNT, OPENER };`)();
+  assert.equal(read.TAUNT, '</script><img src=x onerror=alert(1)>', 'the value is unchanged');
+  assert.equal(read.OPENER, '<!-- html comment opener');
+});
+
+test('a stylesheet that closes its block fails the build', () => {
+  assert.throws(
+    () => buildFixture('hostile-css'),
+    (err) => /style/i.test(err.message) && err.message.includes('styles.css'),
+    'CSS has no safe escape, so this must fail loudly rather than ship a breakable bundle',
+  );
+});
+
+test('bundle carries a content security policy matching what it ships', () => {
+  const meta = output.match(/<meta http-equiv="Content-Security-Policy" content="([^"]+)"/);
+  assert.ok(meta, 'the bundle should declare a CSP in <head>');
+
+  const policy = meta[1];
+  assert.match(policy, /default-src 'none'/, 'nothing loads unless explicitly allowed');
+  assert.match(policy, /img-src data:/, 'the jumpscare is a data URI');
+  assert.match(policy, /base-uri 'none'/);
+  assert.match(policy, /form-action 'none'/);
+
+  const script = output.match(/<script type="module">([\s\S]*?)<\/script>/)[1];
+  const style = output.match(/<style>([\s\S]*?)<\/style>/)[1];
+
+  assert.ok(
+    policy.includes(`'sha256-${sha256(script)}'`),
+    'the script-src hash must match the script that actually ships, or nothing runs',
+  );
+  assert.ok(
+    policy.includes(`'sha256-${sha256(style)}'`),
+    'and the style-src hash must match the stylesheet that actually ships',
+  );
+});
+
+test('the policy sits before the script it governs', () => {
+  assert.ok(
+    output.indexOf('Content-Security-Policy') < output.indexOf('<script type="module">'),
+    'a policy declared after the script would not apply to it',
+  );
 });
 
 test('bundle includes every src module', () => {

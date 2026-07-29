@@ -26,14 +26,23 @@ export function isGameKey(code) {
 }
 
 /**
+ * True for the D-pad ids, which are the only codes a pointer can hold. A window-level pointer
+ * release clears these and nothing else, so a mouse click anywhere on the page cannot stop a blob
+ * being glided with the keyboard.
+ */
+export function isPointerCode(code) {
+  return isGameKey(code) && code.startsWith('dpad-');
+}
+
+/**
  * Reduce a Set of held codes to a raw direction vector. Opposites cancel and unknown codes are
  * ignored. The vector is left unnormalized on purpose: that is `game.step`'s job.
  */
 export function vectorFrom(heldCodes) {
   const dirs = { up: false, down: false, left: false, right: false };
   for (const code of heldCodes) {
-    const dir = KEY_MAP[code];
-    if (dir) dirs[dir] = true;
+    if (!isGameKey(code)) continue;
+    dirs[KEY_MAP[code]] = true;
   }
 
   return {
@@ -64,8 +73,13 @@ export function createInput(dpadElement) {
   const clear = () => heldCodes.clear();
 
   // A finger released outside a button's bounds would otherwise never clear its direction, leaving
-  // the blob stuck moving, so pointer release is also watched on the window.
-  const onPointerRelease = () => clear();
+  // the blob stuck moving, so pointer release is also watched on the window. It releases only the
+  // D-pad: clearing everything here would mean a stray mouse click stopped a keyboard glide.
+  const onPointerRelease = () => {
+    for (const code of heldCodes) {
+      if (isPointerCode(code)) heldCodes.delete(code);
+    }
+  };
 
   const buttons = dpadElement ? [...dpadElement.querySelectorAll('button[data-code]')] : [];
   const bound = buttons.map((button) => {

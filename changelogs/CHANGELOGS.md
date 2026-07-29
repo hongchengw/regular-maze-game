@@ -2,6 +2,71 @@
 
 Newest first. One entry per completed task.
 
+## Security - Audit, escape inlined sources, and add a CSP - 2026-07-29 11:43 PM EDT
+
+Full audit of the app and its build. The attack surface is genuinely small and worth stating plainly:
+the app reads nothing from its environment (no `location`, `URLSearchParams`, `window.name`,
+`postMessage`, `referrer`, cookies, or storage), makes no network calls, and never touches
+`innerHTML`, `document.write`, `eval`, or `new Function`. One real finding, in the bundler.
+
+**Added**
+- `build/build.js`: `escapeInlineScript(js)` rewrites `</script` to `<\/script` and `<!--` to
+  `<\!--`, both valid inside string literals, comments, and regular expressions, so the meaning of
+  the code cannot change. `assertInlineStyleSafe(css, file)` throws with the offending file named,
+  since CSS has no escape that survives `</style`. Without these, any source file containing those
+  sequences closed its own block and injected arbitrary markup into the shipped artifact. Reproduced
+  before the fix: a module string containing `</script><img src=x onerror=alert(1)>` escaped into
+  the document as live markup.
+- `build/build.js`: a `<meta http-equiv="Content-Security-Policy">` emitted into `<head>` ahead of
+  the script, with `default-src 'none'; img-src data:; script-src 'sha256-...'; style-src
+  'sha256-...'; base-uri 'none'; form-action 'none'`. The two hashes are computed over exactly the
+  text that ships, so a tampered bundle refuses to run. This enforces the zero-external-requests
+  invariant at runtime rather than only in a test grep.
+- `src/input.js`: `isPointerCode(code)`, true only for the four `dpad-*` ids.
+- `tests/build.test.js`: six cases covering the script-block breakout, the escape preserving both
+  syntax and string values, the `</style` build failure, the CSP hashes matching the emitted script
+  and style, and the policy preceding the script it governs. `tests/fixtures/hostile-js` and
+  `tests/fixtures/hostile-css` are complete source trees built to a temp directory, so `dist/` is
+  never touched by these cases.
+- `tests/game.test.js` and `tests/input.test.js`: inherited-key cases for `__proto__`,
+  `constructor`, `toString`, `valueOf`, and `hasOwnProperty`, plus `isPointerCode` coverage.
+
+**Changed**
+- `src/game.js`: `startLevel` checks own properties before the lookup. `DIFFICULTY['__proto__']` and
+  friends all return something truthy, so the old truthiness guard passed them through and the run
+  died deeper with `Invalid maze size undefinedxundefined` instead of `Unknown level`.
+- `src/input.js`: `vectorFrom` filters through `isGameKey` rather than a bare lookup, for the same
+  reason. The window-level `pointerup`/`pointercancel` handler now clears only D-pad codes. It
+  previously cleared everything, so on desktop **a mouse click anywhere stopped a blob being glided
+  with WASD**. That was a real gameplay bug, found while probing the input edge.
+- `src/main.js`: the level-click handler uses `closest('[data-level]')` rather than the raw event
+  target.
+- `build/build.js`: output is normalized to LF before hashing and writing. An HTML parser normalizes
+  CRLF to LF before hashing an inline block, so a CRLF checkout would otherwise have shipped a policy
+  whose hashes never matched, silently blocking the entire script.
+- `SPEC.md`: section 3 gains the escaping and CSP rules, section 9 the own-property level lookup,
+  section 11 the own-property key lookup and the pointer-release rule, section 14 three new
+  invariants.
+
+**Deleted**
+- Nothing.
+
+**Notes**
+- Red run first: 6 cases failed on their assertions, including the reproduced injection and
+  `startLevel('__proto__')` throwing the wrong error. `isPointerCode` was stubbed to return `false`
+  so its failure was behavioural rather than a missing export.
+- Verified in real Chrome over the DevTools Protocol against the built artifact on `file://`, since a
+  wrong CSP hash silently blocks the whole script and no unit test would notice: title to select to
+  playing all work, the canvas resizes to 984x605, 3952 canvas pixels are lit (the fog actually
+  paints), and there are zero console errors, exceptions, and CSP violations.
+- One benign warning in that run: `The AudioContext was not allowed to start`. That is the synthetic
+  CDP click not counting as a user gesture, not a defect. A real click satisfies the gesture rule,
+  which is exactly why `unlock()` lives in the START handler.
+- Considered and dismissed, so they are not re-litigated: iframe embedding (an embedder still gets
+  the title screen and its warning, and `frame-ancestors` is ignored in a meta policy); seed
+  predictability (it seeds a maze, not a secret); and the disabled pinch-zoom, which is a WCAG 1.4.4
+  smell but a locked product decision.
+
 ## Task 10 - Title screen, level select, and wiring - 2026-07-29 11:38 PM EDT
 
 **The app is playable end to end as of this task.** `dist/index.html` is a single self-contained

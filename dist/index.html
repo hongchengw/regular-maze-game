@@ -2,6 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; script-src 'sha256-UtCjFLzRakqkrRiIKaSvBWH/LX0LIjqhclb8iqOk0oE='; style-src 'sha256-jbP9oXcPQSia3AR3n720+R3PpDcxpmNogs1cprq/CgI='; base-uri 'none'; form-action 'none'" />
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
@@ -494,8 +495,12 @@ function pressStart(state) {
 
 /** Select to playing: carve a maze from `seed` and place the blob in the centre of cell (0,0). */
 function startLevel(state, levelName, seed) {
+  // Own properties only. `__proto__`, `constructor`, and friends all return something truthy from a
+  // plain object, so a bare lookup would pass this guard and fail later with a confusing error.
+  const known = Object.prototype.hasOwnProperty.call(DIFFICULTY, levelName);
+  if (!known) throw new Error(`Unknown level '${levelName}'`);
+
   const level = DIFFICULTY[levelName];
-  if (!level) throw new Error(`Unknown level '${levelName}'`);
 
   const maze = generate(level.cols, level.rows, mulberry32(seed));
   const start = { x: 0.5, y: 0.5 };
@@ -724,14 +729,23 @@ function isGameKey(code) {
 }
 
 /**
+ * True for the D-pad ids, which are the only codes a pointer can hold. A window-level pointer
+ * release clears these and nothing else, so a mouse click anywhere on the page cannot stop a blob
+ * being glided with the keyboard.
+ */
+function isPointerCode(code) {
+  return isGameKey(code) && code.startsWith('dpad-');
+}
+
+/**
  * Reduce a Set of held codes to a raw direction vector. Opposites cancel and unknown codes are
  * ignored. The vector is left unnormalized on purpose: that is `game.step`'s job.
  */
 function vectorFrom(heldCodes) {
   const dirs = { up: false, down: false, left: false, right: false };
   for (const code of heldCodes) {
-    const dir = KEY_MAP[code];
-    if (dir) dirs[dir] = true;
+    if (!isGameKey(code)) continue;
+    dirs[KEY_MAP[code]] = true;
   }
 
   return {
@@ -762,8 +776,13 @@ function createInput(dpadElement) {
   const clear = () => heldCodes.clear();
 
   // A finger released outside a button's bounds would otherwise never clear its direction, leaving
-  // the blob stuck moving, so pointer release is also watched on the window.
-  const onPointerRelease = () => clear();
+  // the blob stuck moving, so pointer release is also watched on the window. It releases only the
+  // D-pad: clearing everything here would mean a stray mouse click stopped a keyboard glide.
+  const onPointerRelease = () => {
+    for (const code of heldCodes) {
+      if (isPointerCode(code)) heldCodes.delete(code);
+    }
+  };
 
   const buttons = dpadElement ? [...dpadElement.querySelectorAll('button[data-code]')] : [];
   const bound = buttons.map((button) => {
@@ -1064,8 +1083,10 @@ startButton.addEventListener('click', () => {
 });
 
 screensEl.addEventListener('click', (event) => {
-  const level = event.target.dataset.level;
-  if (level) state = startLevel(state, level, freshSeed());
+  // `closest` rather than the raw target, so a click landing on anything inside a level button
+  // still counts as a click on that button.
+  const button = event.target.closest('[data-level]');
+  if (button) state = startLevel(state, button.dataset.level, freshSeed());
 });
 
 window.addEventListener('resize', () => renderer.resize());
