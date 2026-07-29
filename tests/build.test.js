@@ -58,6 +58,44 @@ test('output inlines the jumpscare asset', () => {
   assert.equal(decoded.length, onDisk.length, 'decoded bytes should match the file on disk');
 });
 
+test('bundle includes every src module', () => {
+  // One known symbol per module. A module dropping out of the import graph fails the build here
+  // rather than silently shipping a broken app.
+  const symbols = {
+    'rng.js': 'mulberry32',
+    'maze.js': 'toSegments',
+    'collision.js': 'distancePointSegment',
+    'difficulty.js': 'DIFFICULTY',
+    'game.js': 'SCARE_DURATION',
+    'render.js': 'fitTransform',
+    'input.js': 'vectorFrom',
+    'audio.js': 'buildScream',
+    'jumpscare.js': 'createJumpscare',
+    'main.js': 'JUMPSCARE_SRC',
+  };
+
+  const modules = fs.readdirSync(path.join(root, 'src')).filter((f) => f.endsWith('.js'));
+  assert.deepEqual(modules.sort(), Object.keys(symbols).sort(), 'every src module needs a symbol here');
+
+  for (const [module, symbol] of Object.entries(symbols)) {
+    assert.ok(output.includes(symbol), `${module} is missing from the bundle: no ${symbol}`);
+  }
+});
+
+test('bundle has the warning text verbatim', () => {
+  assert.ok(
+    output.includes('WARNING: Not suitable for those sensitive to sudden sounds or visuals.'),
+    'the only forewarning the user gets must never be lost to a refactor',
+  );
+});
+
+test('bundle makes no network requests', () => {
+  assert.ok(!output.includes('fetch('), 'no fetch');
+  assert.ok(!output.includes('XMLHttpRequest'), 'no XMLHttpRequest');
+  assert.ok(!output.includes('http://'), 'no http URLs');
+  assert.ok(!output.includes('https://'), 'no https URLs');
+});
+
 test('module order respects dependencies', () => {
   const bundled = bundleFixture(path.join(fixtures, 'graph', 'a.js'));
   const bIndex = bundled.indexOf('b body marker');

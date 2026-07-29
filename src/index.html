@@ -10,6 +10,21 @@
     <style>__STYLES__</style>
   </head>
   <body data-phase="title">
+    <div id="screens">
+      <section data-screen="title">
+        <p class="warning">WARNING: Not suitable for those sensitive to sudden sounds or visuals.</p>
+        <button id="start">START</button>
+      </section>
+      <section data-screen="select">
+        <button data-level="EASY">EASY</button>
+        <button data-level="MEDIUM">MEDIUM</button>
+        <button data-level="HARD">HARD</button>
+      </section>
+      <section data-screen="playing">
+        <canvas id="canvas"></canvas>
+      </section>
+    </div>
+
     <div class="dpad" id="dpad">
       <button class="dpad-up" data-code="dpad-up" aria-label="Move up"></button>
       <button class="dpad-left" data-code="dpad-left" aria-label="Move left"></button>

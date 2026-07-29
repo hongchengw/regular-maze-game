@@ -1,0 +1,128 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { LEVELS } from '../src/difficulty.js';
+import { solve } from '../src/maze.js';
+import { createGame, pressStart, startLevel, step, SCARE_DURATION } from '../src/game.js';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const srcDir = path.resolve(here, '..', 'src');
+const FRAME = 1 / 60;
+
+/**
+ * Steer towards a cell centre one axis at a time, so the blob never cuts a corner diagonally and
+ * stays centred in its corridor. `reached` is one frame's travel, since the blob cannot land on a
+ * point exactly.
+ */
+function steer(pos, target, reached) {
+  const dx = target.x - pos.x;
+  const dy = target.y - pos.y;
+
+  if (Math.abs(dx) < reached && Math.abs(dy) < reached) return { dx: 0, dy: 0 };
+  return Math.abs(dx) >= Math.abs(dy)
+    ? { dx: Math.sign(dx), dy: 0 }
+    : { dx: 0, dy: Math.sign(dy) };
+}
+
+/** Walk the blob along the solved path's cell centres. Returns the final state and frame count. */
+function playThrough(initial, maxFrames = 100000) {
+  const waypoints = solve(initial.maze).map((cell) => ({ x: cell.c + 0.5, y: cell.r + 0.5 }));
+  const reached = initial.level.speed * FRAME;
+  let state = initial;
+  let frames = 0;
+
+  for (const target of waypoints) {
+    while (state.phase === 'playing' && frames < maxFrames) {
+      const input = steer(state.pos, target, reached);
+      if (input.dx === 0 && input.dy === 0) break;
+      state = step(state, FRAME, input);
+      frames += 1;
+    }
+    if (state.phase !== 'playing') break;
+  }
+
+  return { state, frames };
+}
+
+test('a solved maze reaches the scare', () => {
+  for (const name of LEVELS) {
+    const start = startLevel(pressStart(createGame()), name, 2026);
+    const { state } = playThrough(start);
+
+    assert.equal(state.phase, 'scare', `${name} was not traversable along its own solution`);
+    assert.equal(state.hits, 0, `${name} clipped a wall while centred in the corridor`);
+  }
+});
+
+test('the full loop returns to title', () => {
+  const start = startLevel(pressStart(createGame()), 'EASY', 2026);
+  let { state } = playThrough(start);
+  assert.equal(state.phase, 'scare', 'fixture check: the playthrough should reach the scare');
+
+  const frames = Math.ceil(SCARE_DURATION / FRAME) + 1;
+  for (let i = 0; i < frames; i += 1) state = step(state, FRAME, { dx: 0, dy: 0 });
+
+  assert.deepEqual(state, createGame(), 'ten seconds later the app is in its initial state');
+});
+
+test('a second playthrough works', () => {
+  const first = startLevel(pressStart(createGame()), 'EASY', 2026);
+  let { state } = playThrough(first);
+
+  const frames = Math.ceil(SCARE_DURATION / FRAME) + 1;
+  for (let i = 0; i < frames; i += 1) state = step(state, FRAME, { dx: 0, dy: 0 });
+
+  const second = startLevel(pressStart(state), 'MEDIUM', 7);
+  assert.equal(second.phase, 'playing', 'no state corruption survives a full loop');
+  assert.equal(second.hits, 0);
+  assert.deepEqual(second.pos, { x: 0.5, y: 0.5 });
+});
+
+test('wall hits do not change the layout mid-run', () => {
+  let state = startLevel(pressStart(createGame()), 'EASY', 2026);
+  const layout = state.segments;
+
+  // Drive straight up into the solid outer border five times.
+  for (let i = 0; i < 5; i += 1) {
+    let before = state.hits;
+    while (state.hits === before) state = step(state, FRAME, { dx: 0, dy: -1 });
+
+    assert.deepEqual(state.segments, layout, `the maze changed after hit ${i + 1}`);
+    assert.equal(state.seed, 2026, 'the seed is never regenerated on a hit');
+    assert.deepEqual(state.pos, state.start, 'the blob returns to the start cell centre');
+  }
+
+  assert.equal(state.hits, 5);
+});
+
+test('no module touches persistence', () => {
+  const forbidden = ['localStorage', 'sessionStorage', 'indexedDB', 'document.cookie', 'fetch', 'XMLHttpRequest'];
+
+  for (const file of fs.readdirSync(srcDir).filter((f) => f.endsWith('.js'))) {
+    const source = fs.readFileSync(path.join(srcDir, file), 'utf8');
+    for (const name of forbidden) {
+      assert.ok(!source.includes(name), `src/${file} references ${name}; the app never persists or networks`);
+    }
+  }
+});
+
+test('there is no pause, debug key, or level skip', () => {
+  // Comments are stripped first, so prose about the absence of a debug key does not read as one.
+  const sources = fs
+    .readdirSync(srcDir)
+    .filter((f) => f.endsWith('.js'))
+    .map((f) => fs.readFileSync(path.join(srcDir, f), 'utf8'))
+    .join('\n')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^[ \t]*\/\/.*$/gm, '');
+
+  for (const name of ['debug', 'cheat', 'skip', 'pause']) {
+    assert.ok(
+      !new RegExp(`\\b${name}\\b`, 'i').test(sources),
+      `a ${name} affordance is something a victim can stumble into`,
+    );
+  }
+});

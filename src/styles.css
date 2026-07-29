@@ -14,6 +14,64 @@ body {
   background: #000;
 }
 
+/* One screen per phase, driven entirely by the data-phase attribute on body. No imperative
+   show/hide anywhere in the code. */
+[data-screen] {
+  display: none;
+}
+
+body[data-phase='title'] [data-screen='title'],
+body[data-phase='select'] [data-screen='select'],
+body[data-phase='playing'] [data-screen='playing'] {
+  display: flex;
+}
+
+[data-screen='title'],
+[data-screen='select'] {
+  position: fixed;
+  inset: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 24px;
+  padding: 0 24px calc(18vh + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+  font-family: system-ui, sans-serif;
+  color: #fff;
+}
+
+[data-screen='select'] {
+  justify-content: center;
+}
+
+/* The warning is the user's only forewarning. It reads before the button, so it comes first in the
+   DOM as well as above it on screen. */
+.warning {
+  margin: 0;
+  max-width: 34ch;
+  text-align: center;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+#screens button {
+  min-width: 180px;
+  min-height: 56px;
+  padding: 0 24px;
+  border: 1px solid #fff;
+  border-radius: 4px;
+  background: transparent;
+  color: #fff;
+  font: inherit;
+  font-size: 16px;
+  letter-spacing: 0.18em;
+  cursor: pointer;
+}
+
+#screens button:active {
+  background: rgba(255, 255, 255, 0.15);
+}
+
 /* The D-pad: a 3x3 grid with the four buttons in the cross positions, fixed bottom-centre.
    Shown only while playing, and only where a coarse pointer is present. */
 .dpad {

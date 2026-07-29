@@ -2,6 +2,57 @@
 
 Newest first. One entry per completed task.
 
+## Task 10 - Title screen, level select, and wiring - 2026-07-29 11:38 PM EDT
+
+**The app is playable end to end as of this task.** `dist/index.html` is a single self-contained
+file that runs from the filesystem or any static host.
+
+**Added**
+- `tests/integration.test.js`, 7 cases run entirely on the pure modules, no DOM required. The
+  headline case walks the blob along `solve(maze)` at `dt = 1/60` on all three levels and asserts the
+  phase reaches `scare` with zero wall hits, which is the only proof that the generated mazes are
+  actually traversable by a blob of that radius. Also: the full loop returning to a state
+  deep-equalling `createGame()`, a second playthrough after that loop, five deliberate wall hits
+  leaving `segments` and the seed untouched, a scan of every `src/*.js` for `localStorage`,
+  `sessionStorage`, `indexedDB`, `document.cookie`, `fetch`, and `XMLHttpRequest`, and a scan for any
+  pause, debug, cheat, or skip affordance.
+- `tests/build.test.js`: three cases. A known symbol from each of the ten `src/*.js` modules appears
+  in the bundle, with the symbol list checked against the directory listing so a new module cannot be
+  added without one; the warning text appears verbatim; and the bundle contains no `fetch(`, no
+  `XMLHttpRequest`, and no `http://` or `https://`.
+- `src/index.html`: the three screen sections. The title screen carries the warning above the START
+  button in the DOM as well as on screen, the select screen carries EASY, MEDIUM, and HARD, and the
+  playing screen carries the canvas.
+
+**Changed**
+- `src/main.js`: the wiring, and the only stateful file. It builds the renderer, input, audio, and
+  jumpscare, holds `state`, and runs one `requestAnimationFrame` loop in every phase, since `step`
+  also advances the scare clock. `audio.unlock()` is called inside the START click handler, level
+  clicks draw a fresh seed per play, and the phase drives `body.dataset.phase`, the overlay, the
+  input clear, and nothing else. `Date.now()` is read for the seed only, never for game timing.
+- `src/styles.css`: `[data-screen]` hidden by default with one selector per phase revealing exactly
+  one screen, plus the title and select layout and the outlined white-on-black buttons.
+- `tests/integration.test.js`: the no-debug-affordance scan strips comments before searching, since
+  `main.js` states in prose that there is no pause, debug key, or level skip.
+
+**Deleted**
+- The `src/main.js` placeholder body.
+
+**Notes**
+- Red run: the two new bundle cases failed on their assertions, since the old placeholder `main.js`
+  pulled in no modules and the warning text did not exist. The playthrough case initially failed for
+  a real reason worth recording: steering both axes at once cut corners into walls, and a deadzone
+  smaller than one frame's travel made the blob oscillate around a waypoint forever. Steering one
+  axis at a time with a one-frame deadzone fixed both.
+- Verified headlessly against the built `dist/index.html` in Chrome: the title screen shows the
+  warning and START on black and nothing else, clicking through START and EASY reaches `playing` with
+  the fog disc, the maze, and the blob rendering correctly, and zero console errors are raised.
+- **`assets/jumpscare.png` is still the committed placeholder**, a small solid dark PNG. Replacing
+  that file and rerunning `node build/build.js` is the entire swap procedure.
+- Outstanding manual checks that need a real device or a person: the stopwatch timing of the
+  10-second scare, the audio listen, iOS Safari's gesture requirement, and the D-pad on a phone in
+  both orientations.
+
 ## Task 09 - Fullscreen jumpscare overlay - 2026-07-29 11:29 PM EDT
 
 **Added**

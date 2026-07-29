@@ -23,6 +23,64 @@ body {
   background: #000;
 }
 
+/* One screen per phase, driven entirely by the data-phase attribute on body. No imperative
+   show/hide anywhere in the code. */
+[data-screen] {
+  display: none;
+}
+
+body[data-phase='title'] [data-screen='title'],
+body[data-phase='select'] [data-screen='select'],
+body[data-phase='playing'] [data-screen='playing'] {
+  display: flex;
+}
+
+[data-screen='title'],
+[data-screen='select'] {
+  position: fixed;
+  inset: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 24px;
+  padding: 0 24px calc(18vh + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+  font-family: system-ui, sans-serif;
+  color: #fff;
+}
+
+[data-screen='select'] {
+  justify-content: center;
+}
+
+/* The warning is the user's only forewarning. It reads before the button, so it comes first in the
+   DOM as well as above it on screen. */
+.warning {
+  margin: 0;
+  max-width: 34ch;
+  text-align: center;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+#screens button {
+  min-width: 180px;
+  min-height: 56px;
+  padding: 0 24px;
+  border: 1px solid #fff;
+  border-radius: 4px;
+  background: transparent;
+  color: #fff;
+  font: inherit;
+  font-size: 16px;
+  letter-spacing: 0.18em;
+  cursor: pointer;
+}
+
+#screens button:active {
+  background: rgba(255, 255, 255, 0.15);
+}
+
 /* The D-pad: a 3x3 grid with the four buttons in the cross positions, fixed bottom-centre.
    Shown only while playing, and only where a coarse pointer is present. */
 .dpad {
@@ -103,6 +161,21 @@ body[data-phase='scare'] .dpad {
 }</style>
   </head>
   <body data-phase="title">
+    <div id="screens">
+      <section data-screen="title">
+        <p class="warning">WARNING: Not suitable for those sensitive to sudden sounds or visuals.</p>
+        <button id="start">START</button>
+      </section>
+      <section data-screen="select">
+        <button data-level="EASY">EASY</button>
+        <button data-level="MEDIUM">MEDIUM</button>
+        <button data-level="HARD">HARD</button>
+      </section>
+      <section data-screen="playing">
+        <canvas id="canvas"></canvas>
+      </section>
+    </div>
+
     <div class="dpad" id="dpad">
       <button class="dpad-up" data-code="dpad-up" aria-label="Move up"></button>
       <button class="dpad-left" data-code="dpad-left" aria-label="Move left"></button>
@@ -114,8 +187,905 @@ body[data-phase='scare'] .dpad {
 
     <script type="module">
 const JUMPSCARE_SRC = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFElEQVR42mPgIhEwjGoY1TB8NQAA9bMeAeVRnTAAAAAASUVORK5CYII=";
-// Entry point. Task 10 wires the real app; for now this only gives the graph walk a root.
-const APP_NAME = 'regular-maze-game';
+// Seeded pseudo-random float stream. Kept exactly as mulberry32 is published so the same seed
+// yields the same maze across Node versions and browsers.
+
+/** Returns a function producing floats in [0, 1), deterministic for a given `seed`. */
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function next() {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// Seeded perfect maze generation and its wall geometry, in cell units.
+//
+// A maze is `{ cols, rows, passages }` where `passages` is a Set of canonical keys naming the two
+// cells a carved passage joins. A perfect maze is a spanning tree, so `passages.size` is always
+// `cols * rows - 1`: exactly one path between any two cells, no loops, no isolated cells.
+
+/** The four orthogonal neighbour offsets, in screen order: up, right, down, left. */
+const MAZE_NEIGHBOURS = [
+  [0, -1],
+  [1, 0],
+  [0, 1],
+  [-1, 0],
+];
+
+/** Canonical key for the boundary between two adjacent cells, smaller cell first. */
+function passageKey(c1, r1, c2, r2) {
+  const a = `${c1},${r1}`;
+  const b = `${c2},${r2}`;
+  return a < b ? `${a}|${b}` : `${b}|${a}`;
+}
+
+/** True if a passage has been carved between two adjacent cells. */
+function isCarved(maze, c1, r1, c2, r2) {
+  return maze.passages.has(passageKey(c1, r1, c2, r2));
+}
+
+/** In-place Fisher-Yates shuffle driven by the seeded `rng`. */
+function shuffle(items, rng) {
+  for (let i = items.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rng() * (i + 1));
+    [items[i], items[j]] = [items[j], items[i]];
+  }
+  return items;
+}
+
+/**
+ * Carve a perfect maze with a recursive backtracker, using an explicit stack so a large grid
+ * cannot overflow the call stack. `rng` is the seed policy's business, not this function's.
+ */
+function generate(cols, rows, rng) {
+  if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 1 || rows < 1) {
+    throw new Error(`Invalid maze size ${cols}x${rows}: cols and rows must be integers >= 1`);
+  }
+
+  const passages = new Set();
+  const visited = new Set(['0,0']);
+  const stack = [[0, 0]];
+
+  while (stack.length) {
+    const [c, r] = stack[stack.length - 1];
+    const options = shuffle([...MAZE_NEIGHBOURS], rng)
+      .map(([dc, dr]) => [c + dc, r + dr])
+      .filter(([nc, nr]) => nc >= 0 && nr >= 0 && nc < cols && nr < rows)
+      .filter(([nc, nr]) => !visited.has(`${nc},${nr}`));
+
+    if (!options.length) {
+      stack.pop();
+      continue;
+    }
+
+    const [nc, nr] = options[0];
+    passages.add(passageKey(c, r, nc, nr));
+    visited.add(`${nc},${nr}`);
+    stack.push([nc, nr]);
+  }
+
+  return { cols, rows, passages };
+}
+
+/**
+ * Flatten a maze into wall line segments on cell boundaries. Each boundary is emitted at most once:
+ * a cell contributes its top and left edges, and the last column and row close the outer border.
+ */
+function toSegments(maze) {
+  const { cols, rows } = maze;
+  const segments = [];
+
+  for (let r = 0; r < rows; r += 1) {
+    for (let c = 0; c < cols; c += 1) {
+      if (r === 0 || !isCarved(maze, c, r, c, r - 1)) {
+        segments.push({ x1: c, y1: r, x2: c + 1, y2: r });
+      }
+      if (c === 0 || !isCarved(maze, c, r, c - 1, r)) {
+        segments.push({ x1: c, y1: r, x2: c, y2: r + 1 });
+      }
+    }
+  }
+
+  for (let r = 0; r < rows; r += 1) {
+    segments.push({ x1: cols, y1: r, x2: cols, y2: r + 1 });
+  }
+  for (let c = 0; c < cols; c += 1) {
+    segments.push({ x1: c, y1: rows, x2: c + 1, y2: rows });
+  }
+
+  return segments;
+}
+
+/**
+ * Breadth-first path from the start cell (0,0) to the exit cell (cols-1, rows-1) across carved
+ * passages. Serves tests, not gameplay.
+ */
+function solve(maze) {
+  const { cols, rows } = maze;
+  const parents = new Map([['0,0', null]]);
+  const queue = [[0, 0]];
+  const goal = `${cols - 1},${rows - 1}`;
+
+  for (let head = 0; head < queue.length; head += 1) {
+    const [c, r] = queue[head];
+    if (`${c},${r}` === goal) break;
+
+    for (const [dc, dr] of MAZE_NEIGHBOURS) {
+      const nc = c + dc;
+      const nr = r + dr;
+      if (nc < 0 || nr < 0 || nc >= cols || nr >= rows) continue;
+      if (parents.has(`${nc},${nr}`) || !isCarved(maze, c, r, nc, nr)) continue;
+      parents.set(`${nc},${nr}`, `${c},${r}`);
+      queue.push([nc, nr]);
+    }
+  }
+
+  const path = [];
+  for (let at = goal; at !== null && at !== undefined; at = parents.get(at)) {
+    const [c, r] = at.split(',').map(Number);
+    path.unshift({ c, r });
+  }
+  return path;
+}
+
+// Swept circle collision against wall segments, in cell units.
+//
+// Contact is strictly closer than `radius + halfThickness`, so exactly touching is not a hit and
+// the boundary case goes to the player. Collision never slides and never bounces; the game layer
+// decides what a hit costs.
+//
+// Broad-phase acceleration is deliberately out of scope: a 24x24 maze has under 1200 segments and
+// this runs once per frame.
+
+/** Squared distance from a point to a segment, with the projection clamped to the segment. */
+function distanceSquaredPointSegment(px, py, seg) {
+  const dx = seg.x2 - seg.x1;
+  const dy = seg.y2 - seg.y1;
+  const lengthSquared = dx * dx + dy * dy;
+
+  // A zero-length segment degrades to plain point distance rather than dividing by zero.
+  const projection =
+    lengthSquared === 0 ? 0 : ((px - seg.x1) * dx + (py - seg.y1) * dy) / lengthSquared;
+  const t = Math.max(0, Math.min(1, projection));
+
+  const nearestX = seg.x1 + t * dx;
+  const nearestY = seg.y1 + t * dy;
+  return (px - nearestX) ** 2 + (py - nearestY) ** 2;
+}
+
+/** Distance from a point to a wall segment. Never returns NaN. */
+function distancePointSegment(px, py, seg) {
+  return Math.sqrt(distanceSquaredPointSegment(px, py, seg));
+}
+
+/** True if a blob of `radius` centred at (x, y) is in contact with any segment. */
+function hitsWall(x, y, radius, segments, halfThickness) {
+  const contact = radius + halfThickness;
+  const contactSquared = contact * contact;
+
+  for (const seg of segments) {
+    if (distanceSquaredPointSegment(x, y, seg) < contactSquared) return true;
+  }
+  return false;
+}
+
+/**
+ * Move a blob from `from` to `to` in sub-steps no longer than `radius / 2`, testing each one, so no
+ * frame delta or flick speed can tunnel a wall. Returns the first contact along with the last
+ * position that was itself clear.
+ */
+function sweep(from, to, radius, segments, halfThickness) {
+  if (hitsWall(from.x, from.y, radius, segments, halfThickness)) {
+    return { hit: true, pos: { x: from.x, y: from.y }, steps: 0 };
+  }
+
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const distance = Math.hypot(dx, dy);
+
+  if (distance === 0) {
+    return { hit: false, pos: { x: from.x, y: from.y }, steps: 0 };
+  }
+
+  const steps = Math.max(1, Math.ceil(distance / (radius / 2)));
+  let safe = { x: from.x, y: from.y };
+
+  for (let i = 1; i <= steps; i += 1) {
+    const t = i / steps;
+    const x = from.x + dx * t;
+    const y = from.y + dy * t;
+
+    if (hitsWall(x, y, radius, segments, halfThickness)) {
+      return { hit: true, pos: safe, steps: i };
+    }
+    safe = { x, y };
+  }
+
+  return { hit: false, pos: safe, steps };
+}
+
+// The one tuning table. Every tunable number in the game lives here and nowhere else.
+//
+// Harder means a larger grid, a fatter blob relative to the corridor, and a smaller fog radius, so
+// more of the maze is navigated blind. Because the renderer fits the whole maze to the viewport, a
+// larger grid also means fewer pixels per cell, which tightens HARD corridors visually without
+// touching the cell-unit geometry.
+
+const DIFFICULTY = Object.freeze({
+  EASY: Object.freeze({
+    cols: 10,
+    rows: 10,
+    blobRadius: 0.16,
+    wallHalfThickness: 0.04,
+    fogRadius: 2.2,
+    speed: 3.2,
+    exitRadius: 0.3,
+  }),
+  MEDIUM: Object.freeze({
+    cols: 16,
+    rows: 16,
+    blobRadius: 0.18,
+    wallHalfThickness: 0.035,
+    fogRadius: 1.6,
+    speed: 3.4,
+    exitRadius: 0.28,
+  }),
+  HARD: Object.freeze({
+    cols: 24,
+    rows: 24,
+    blobRadius: 0.22,
+    wallHalfThickness: 0.03,
+    fogRadius: 1.1,
+    speed: 3.6,
+    exitRadius: 0.25,
+  }),
+});
+
+/** Display order for the select screen, so the UI cannot drift from the table. */
+const LEVELS = Object.freeze(['EASY', 'MEDIUM', 'HARD']);
+
+/** Slack between the blob's edge and a wall when the blob is centred in a corridor. */
+function clearance(level) {
+  return 0.5 - (level.blobRadius + level.wallHalfThickness);
+}
+
+// The whole game as pure functions over a plain state object: phases, movement, reset on a wall
+// hit, and exit detection.
+//
+// Nothing here knows about the DOM, the canvas, audio, or the clock. It receives `dt` and an input
+// vector and returns the next state, which is what makes the game testable in plain Node.
+
+
+
+
+
+
+/** Seconds. Caps a frame delta so a background tab regaining focus cannot jump the maze. */
+const MAX_DT = 0.05;
+
+/** Seconds the jumpscare image holds before the app returns to the title screen. */
+const SCARE_DURATION = 10;
+
+/** The initial state. Also the state the app returns to after a scare. */
+function createGame() {
+  return {
+    phase: 'title',
+    levelName: null,
+    level: null,
+    seed: null,
+    maze: null,
+    segments: null,
+    pos: null,
+    start: null,
+    exit: null,
+    hits: 0,
+    scareElapsed: 0,
+  };
+}
+
+/** Title to select. */
+function pressStart(state) {
+  return { ...state, phase: 'select' };
+}
+
+/** Select to playing: carve a maze from `seed` and place the blob in the centre of cell (0,0). */
+function startLevel(state, levelName, seed) {
+  const level = DIFFICULTY[levelName];
+  if (!level) throw new Error(`Unknown level '${levelName}'`);
+
+  const maze = generate(level.cols, level.rows, mulberry32(seed));
+  const start = { x: 0.5, y: 0.5 };
+
+  return {
+    ...state,
+    phase: 'playing',
+    levelName,
+    level,
+    seed,
+    maze,
+    segments: toSegments(maze),
+    pos: { ...start },
+    start,
+    exit: { x: level.cols - 0.5, y: level.rows - 0.5 },
+    hits: 0,
+    scareElapsed: 0,
+  };
+}
+
+/** Normalize an input vector longer than 1, so the blob's speed is equal in all eight directions. */
+function direction(input) {
+  const length = Math.hypot(input.dx, input.dy);
+  if (length === 0) return { dx: 0, dy: 0 };
+  return length > 1 ? { dx: input.dx / length, dy: input.dy / length } : { dx: input.dx, dy: input.dy };
+}
+
+/** One frame of playing: glide, resolve the move by sweeping, then test the exit. */
+function stepPlaying(state, dt, input) {
+  const { level, pos, segments } = state;
+  const dir = direction(input);
+
+  const to = {
+    x: pos.x + dir.dx * level.speed * dt,
+    y: pos.y + dir.dy * level.speed * dt,
+  };
+  const move = sweep(pos, to, level.blobRadius, segments, level.wallHalfThickness);
+
+  // A hit costs the blob its progress but never the maze: the layout and seed are untouched, so
+  // the player keeps the mental map they built.
+  if (move.hit) {
+    return { ...state, pos: { ...state.start }, hits: state.hits + 1 };
+  }
+
+  const reached = Math.hypot(move.pos.x - state.exit.x, move.pos.y - state.exit.y) < level.exitRadius;
+  return {
+    ...state,
+    pos: move.pos,
+    phase: reached ? 'scare' : state.phase,
+    scareElapsed: 0,
+  };
+}
+
+/**
+ * Advance the game by `dt` seconds under `input` = `{ dx, dy }`. Returns a new state and never
+ * mutates its argument. Input is ignored in every phase except `playing`.
+ */
+function step(state, dt, input) {
+  const clamped = Math.min(dt, MAX_DT);
+
+  if (state.phase === 'playing') return stepPlaying(state, clamped, input);
+
+  if (state.phase === 'scare') {
+    const scareElapsed = state.scareElapsed + clamped;
+    // Discarding everything is structural: the app returns to a state identical to a fresh game.
+    return scareElapsed >= SCARE_DURATION ? createGame() : { ...state, scareElapsed };
+  }
+
+  return state;
+}
+
+// Canvas drawing: white maze lines on black, revealed only inside a soft fog disc around the blob.
+//
+// This module owns the single cell-units-to-pixels transform, so a resize recomputes `scale` and
+// nothing else. Drawing is a pure function of state plus canvas size and never mutates game state.
+
+/** Fraction of the shorter viewport axis the maze fills, leaving a margin. */
+const FIT = 0.92;
+
+/** Fraction of the fog radius that is fully clear before the edge starts fading. */
+const FOG_CLEAR = 0.75;
+
+/** Pixels of glow around the blob, at a scale of 1 cell per pixel. */
+const BLOB_GLOW = 0.35;
+
+/**
+ * Fit a `cols` x `rows` maze into a viewport. Aspect independent: rotating the device yields the
+ * same scale with the offsets swapped.
+ */
+function fitTransform(viewW, viewH, cols, rows) {
+  const scale = (Math.min(viewW, viewH) * FIT) / Math.max(cols, rows);
+  return {
+    scale,
+    offsetX: (viewW - cols * scale) / 2,
+    offsetY: (viewH - rows * scale) / 2,
+  };
+}
+
+/** Cell units to pixels. */
+function toPixels(cx, cy, t) {
+  return { x: t.offsetX + cx * t.scale, y: t.offsetY + cy * t.scale };
+}
+
+/** Pixels back to cell units. */
+function toCells(px, py, t) {
+  return { cx: (px - t.offsetX) / t.scale, cy: (py - t.offsetY) / t.scale };
+}
+
+/** Wall stroke width in pixels: exactly the geometry collision uses, so what you see is what you hit. */
+function strokeWidthPx(level, scale) {
+  return level.wallHalfThickness * 2 * scale;
+}
+
+/** Fog disc radius in pixels. */
+function fogRadiusPx(level, scale) {
+  return level.fogRadius * scale;
+}
+
+/** True if a segment's bounding box lies entirely outside the fog disc, so drawing it is wasted. */
+function outsideFog(seg, cx, cy, radiusCells) {
+  const minX = Math.min(seg.x1, seg.x2) - radiusCells;
+  const maxX = Math.max(seg.x1, seg.x2) + radiusCells;
+  const minY = Math.min(seg.y1, seg.y2) - radiusCells;
+  const maxY = Math.max(seg.y1, seg.y2) + radiusCells;
+  return cx < minX || cx > maxX || cy < minY || cy > maxY;
+}
+
+/**
+ * Bind a renderer to a canvas. `resize()` recomputes the backing store and the transform; `draw`
+ * paints one frame of `state`.
+ */
+function createRenderer(canvas) {
+  const ctx = canvas.getContext('2d');
+  let viewW = 0;
+  let viewH = 0;
+
+  function resize() {
+    const dpr = window.devicePixelRatio || 1;
+    viewW = canvas.clientWidth;
+    viewH = canvas.clientHeight;
+    canvas.width = Math.round(viewW * dpr);
+    canvas.height = Math.round(viewH * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  function draw(state) {
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, viewW, viewH);
+
+    if (state.phase !== 'playing') return;
+
+    const { level, pos, segments } = state;
+    const t = fitTransform(viewW, viewH, state.maze.cols, state.maze.rows);
+    const blob = toPixels(pos.x, pos.y, t);
+    const fog = fogRadiusPx(level, t.scale);
+
+    // Walls, clipped to the fog disc. Everything outside it stays the black already painted.
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(blob.x, blob.y, fog, 0, Math.PI * 2);
+    ctx.clip();
+
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = strokeWidthPx(level, t.scale);
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    for (const seg of segments) {
+      if (outsideFog(seg, pos.x, pos.y, level.fogRadius)) continue;
+      const a = toPixels(seg.x1, seg.y1, t);
+      const b = toPixels(seg.x2, seg.y2, t);
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+    }
+    ctx.stroke();
+    ctx.restore();
+
+    // Fade the outer quarter of the disc to black, so the fog edge is not a cookie cutter.
+    const fade = ctx.createRadialGradient(blob.x, blob.y, fog * FOG_CLEAR, blob.x, blob.y, fog);
+    fade.addColorStop(0, 'rgba(0, 0, 0, 0)');
+    fade.addColorStop(1, 'rgba(0, 0, 0, 1)');
+    ctx.fillStyle = fade;
+    ctx.beginPath();
+    ctx.arc(blob.x, blob.y, fog, 0, Math.PI * 2);
+    ctx.fill();
+
+    // The blob. Nothing else is drawn: no HUD, no timer, no hit counter, and no exit marker, since
+    // marking the exit would leak the goal through the fog.
+    ctx.save();
+    ctx.shadowColor = '#fff';
+    ctx.shadowBlur = BLOB_GLOW * t.scale;
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(blob.x, blob.y, level.blobRadius * t.scale, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  return { resize, draw };
+}
+
+// Held keys and held D-pad buttons reduced to one `{ dx, dy }` vector.
+//
+// Keyboard codes and D-pad ids share one map and one code path, so desktop and touch produce
+// identical movement and there is only one behavior to reason about.
+//
+// The mouse is never used during gameplay. It clicks START and the difficulty buttons, nothing else.
+
+const KEY_MAP = Object.freeze({
+  KeyW: 'up',
+  ArrowUp: 'up',
+  'dpad-up': 'up',
+  KeyS: 'down',
+  ArrowDown: 'down',
+  'dpad-down': 'down',
+  KeyA: 'left',
+  ArrowLeft: 'left',
+  'dpad-left': 'left',
+  KeyD: 'right',
+  ArrowRight: 'right',
+  'dpad-right': 'right',
+});
+
+/** True for the codes the game handles, so the listener knows exactly when to `preventDefault`. */
+function isGameKey(code) {
+  return Object.prototype.hasOwnProperty.call(KEY_MAP, code);
+}
+
+/**
+ * Reduce a Set of held codes to a raw direction vector. Opposites cancel and unknown codes are
+ * ignored. The vector is left unnormalized on purpose: that is `game.step`'s job.
+ */
+function vectorFrom(heldCodes) {
+  const dirs = { up: false, down: false, left: false, right: false };
+  for (const code of heldCodes) {
+    const dir = KEY_MAP[code];
+    if (dir) dirs[dir] = true;
+  }
+
+  return {
+    dx: (dirs.right ? 1 : 0) - (dirs.left ? 1 : 0),
+    dy: (dirs.down ? 1 : 0) - (dirs.up ? 1 : 0),
+  };
+}
+
+/**
+ * Bind keyboard and D-pad listeners. Returns the current `vector()`, plus `clear()` for phase
+ * changes, and `attach`/`detach` for the listeners themselves.
+ */
+function createInput(dpadElement) {
+  const heldCodes = new Set();
+
+  const onKeyDown = (event) => {
+    if (!isGameKey(event.code)) return;
+    event.preventDefault();
+    heldCodes.add(event.code);
+  };
+
+  const onKeyUp = (event) => {
+    if (!isGameKey(event.code)) return;
+    event.preventDefault();
+    heldCodes.delete(event.code);
+  };
+
+  const clear = () => heldCodes.clear();
+
+  // A finger released outside a button's bounds would otherwise never clear its direction, leaving
+  // the blob stuck moving, so pointer release is also watched on the window.
+  const onPointerRelease = () => clear();
+
+  const buttons = dpadElement ? [...dpadElement.querySelectorAll('button[data-code]')] : [];
+  const bound = buttons.map((button) => {
+    const code = button.dataset.code;
+    const press = (event) => {
+      event.preventDefault();
+      heldCodes.add(code);
+    };
+    const release = () => heldCodes.delete(code);
+    return { button, press, release };
+  });
+
+  function attach() {
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('blur', clear);
+    document.addEventListener('visibilitychange', clear);
+    window.addEventListener('pointerup', onPointerRelease);
+    window.addEventListener('pointercancel', onPointerRelease);
+
+    for (const { button, press, release } of bound) {
+      button.addEventListener('pointerdown', press);
+      button.addEventListener('pointerup', release);
+      button.addEventListener('pointercancel', release);
+      button.addEventListener('pointerleave', release);
+    }
+  }
+
+  function detach() {
+    window.removeEventListener('keydown', onKeyDown);
+    window.removeEventListener('keyup', onKeyUp);
+    window.removeEventListener('blur', clear);
+    document.removeEventListener('visibilitychange', clear);
+    window.removeEventListener('pointerup', onPointerRelease);
+    window.removeEventListener('pointercancel', onPointerRelease);
+
+    for (const { button, press, release } of bound) {
+      button.removeEventListener('pointerdown', press);
+      button.removeEventListener('pointerup', release);
+      button.removeEventListener('pointercancel', release);
+      button.removeEventListener('pointerleave', release);
+    }
+    clear();
+  }
+
+  return { vector: () => vectorFrom(heldCodes), clear, attach, detach };
+}
+
+// The scare sound, synthesized with the Web Audio API. No audio file and no base64 audio blob, so
+// the bundle stays small and the sound is exactly 4 seconds by construction rather than by however
+// long a sourced clip happens to run.
+//
+// Nothing here reads game state or touches the DOM. No audio plays at any other time: the title,
+// select, and gameplay screens are silent, and silence during play is what makes the scare land.
+
+/** Seconds. The image holds for 10s, so the last 6 are deliberately silent. */
+const SCREAM_DURATION = 4.0;
+
+/** Master gain ceiling. Startling, not damaging. */
+const PEAK_GAIN = 0.45;
+
+/** Seconds of white noise generated once per context and reused across plays. */
+const NOISE_SECONDS = 4.0;
+
+const noiseBuffers = new WeakMap();
+
+/** White noise, generated once per context. */
+function noiseBuffer(ctx) {
+  const cached = noiseBuffers.get(ctx);
+  if (cached) return cached;
+
+  const length = Math.floor(ctx.sampleRate * NOISE_SECONDS);
+  const buffer = ctx.createBuffer(1, length, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < length; i += 1) data[i] = Math.random() * 2 - 1;
+
+  noiseBuffers.set(ctx, buffer);
+  return buffer;
+}
+
+/**
+ * Schedule the four layers of the scream at `startTime`, all at once and with no timers. Returns
+ * the scheduled source nodes. Nothing is scheduled before `startTime` and nothing outlives
+ * `startTime + SCREAM_DURATION`.
+ */
+function buildScream(ctx, startTime) {
+  const end = startTime + SCREAM_DURATION;
+
+  // A limiter is the last thing before the destination, as a safety net under the master cap.
+  const limiter = ctx.createDynamicsCompressor();
+  limiter.threshold.setValueAtTime(-12, startTime);
+  limiter.knee.setValueAtTime(6, startTime);
+  limiter.ratio.setValueAtTime(12, startTime);
+  limiter.attack.setValueAtTime(0.002, startTime);
+  limiter.release.setValueAtTime(0.15, startTime);
+  limiter.connect(ctx.destination);
+
+  const master = ctx.createGain();
+  master.gain.setValueAtTime(PEAK_GAIN, startTime);
+  master.connect(limiter);
+
+  const sources = [];
+
+  // Layer 1, impact: a white-noise burst through a lowpass sweeping 8 kHz down to 200 Hz.
+  const impact = ctx.createBufferSource();
+  impact.buffer = noiseBuffer(ctx);
+  const impactFilter = ctx.createBiquadFilter();
+  impactFilter.type = 'lowpass';
+  impactFilter.frequency.setValueAtTime(8000, startTime);
+  impactFilter.frequency.exponentialRampToValueAtTime(200, startTime + 0.25);
+  const impactGain = ctx.createGain();
+  impactGain.gain.setValueAtTime(0.0001, startTime);
+  impactGain.gain.linearRampToValueAtTime(1, startTime + 0.01);
+  impactGain.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.25);
+  impact.connect(impactFilter);
+  impactFilter.connect(impactGain);
+  impactGain.connect(master);
+  impact.start(startTime);
+  impact.stop(startTime + 0.3);
+  sources.push(impact);
+
+  // Layer 2, scream body: two sawtooths detuned about 15 cents, gliding 1200 Hz down to 180 Hz.
+  const bodyGain = ctx.createGain();
+  bodyGain.gain.setValueAtTime(0.0001, startTime);
+  bodyGain.gain.linearRampToValueAtTime(0.8, startTime + 0.02);
+  bodyGain.gain.setValueAtTime(0.8, startTime + 2.8);
+  bodyGain.gain.exponentialRampToValueAtTime(0.0001, startTime + 3.4);
+  bodyGain.connect(master);
+
+  for (const detune of [-15, 15]) {
+    const osc = ctx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.detune.setValueAtTime(detune, startTime);
+    osc.frequency.setValueAtTime(1200, startTime);
+    osc.frequency.exponentialRampToValueAtTime(180, startTime + 3.4);
+    osc.connect(bodyGain);
+    osc.start(startTime);
+    osc.stop(end);
+    sources.push(osc);
+  }
+
+  // Layer 3, grit: bandpass-filtered noise tracking the scream's pitch, at a lower gain.
+  const grit = ctx.createBufferSource();
+  grit.buffer = noiseBuffer(ctx);
+  const gritFilter = ctx.createBiquadFilter();
+  gritFilter.type = 'bandpass';
+  gritFilter.Q.setValueAtTime(1.2, startTime);
+  gritFilter.frequency.setValueAtTime(1200, startTime);
+  gritFilter.frequency.exponentialRampToValueAtTime(180, startTime + 3.4);
+  const gritGain = ctx.createGain();
+  gritGain.gain.setValueAtTime(0.0001, startTime);
+  gritGain.gain.linearRampToValueAtTime(0.35, startTime + 0.05);
+  gritGain.gain.exponentialRampToValueAtTime(0.0001, startTime + 3.4);
+  grit.connect(gritFilter);
+  gritFilter.connect(gritGain);
+  gritGain.connect(master);
+  grit.start(startTime);
+  grit.stop(end);
+  sources.push(grit);
+
+  // Layer 4, sub: a 55 Hz sine for chest weight.
+  const sub = ctx.createOscillator();
+  sub.type = 'sine';
+  sub.frequency.setValueAtTime(55, startTime);
+  const subGain = ctx.createGain();
+  subGain.gain.setValueAtTime(0.0001, startTime);
+  subGain.gain.linearRampToValueAtTime(0.7, startTime + 0.02);
+  subGain.gain.exponentialRampToValueAtTime(0.0001, startTime + 1.2);
+  sub.connect(subGain);
+  subGain.connect(master);
+  sub.start(startTime);
+  sub.stop(startTime + 1.3);
+  sources.push(sub);
+
+  return sources;
+}
+
+/**
+ * Wrap the scream in a context lifecycle. The constructor is injected so tests can pass a fake or
+ * `undefined`; `main.js` passes `window.AudioContext || window.webkitAudioContext`.
+ */
+function createAudio(AudioContextCtor) {
+  let ctx = null;
+
+  // Browsers block audio started outside a user gesture, so unlock() is called from the START
+  // click handler. Calling it again is harmless.
+  function unlock() {
+    if (!AudioContextCtor) return;
+    try {
+      if (!ctx) ctx = new AudioContextCtor();
+      if (ctx.state === 'suspended') ctx.resume();
+    } catch (err) {
+      ctx = null;
+    }
+  }
+
+  // Audio failure never blocks the jumpscare and never throws into the animation loop.
+  function playScream() {
+    if (!AudioContextCtor) return;
+    try {
+      unlock();
+      if (ctx) buildScream(ctx, ctx.currentTime + 0.01);
+    } catch (err) {
+      // Swallowed on purpose: the visual scare still runs.
+    }
+  }
+
+  return { unlock, playScream, available: Boolean(AudioContextCtor) };
+}
+
+// The fullscreen overlay: the user-supplied image, held perfectly still, with the scream.
+//
+// The 10-second clock belongs to `game.step`, not to a timer here. The overlay is purely a function
+// of `state.phase`, so there is one clock, no drift, and no orphaned timer if something else changes
+// phase.
+
+/**
+ * Bind the overlay to its elements. `imageSrc` is the build-inlined data URI, assigned immediately
+ * rather than on `show()`: a data URI decodes fast but not instantly, and a blank first frame would
+ * deflate the scare.
+ */
+function createJumpscare(overlayEl, imgEl, audio, imageSrc) {
+  imgEl.src = imageSrc;
+
+  function show() {
+    overlayEl.classList.add('visible');
+
+    // Audio failure never blocks the jumpscare. The image is the payload; the sound is a bonus.
+    try {
+      audio.playScream();
+    } catch (err) {
+      // Swallowed on purpose.
+    }
+  }
+
+  function hide() {
+    overlayEl.classList.remove('visible');
+  }
+
+  return { show, hide };
+}
+
+// The only stateful file: it owns `state`, the animation loop, and the wiring between the pure
+// game and its DOM edges. Every other module is either pure or a thin adapter.
+//
+// There is no pause, no debug key, and no level skip. Anything that lets a tester reach the exit
+// without playing is also something a victim can stumble into.
+
+
+
+
+
+
+
+const screensEl = document.getElementById('screens');
+const startButton = document.getElementById('start');
+const canvasEl = document.getElementById('canvas');
+const dpadEl = document.getElementById('dpad');
+const overlayEl = document.getElementById('jumpscare');
+
+const renderer = createRenderer(canvasEl);
+const input = createInput(dpadEl);
+const audio = createAudio(window.AudioContext || window.webkitAudioContext);
+const jumpscare = createJumpscare(overlayEl, overlayEl.querySelector('img'), audio, JUMPSCARE_SRC);
+
+let state = createGame();
+let phaseShown = null;
+let lastFrame = 0;
+
+/** A fresh seed per play. `Date.now` is read for the seed only, never for game timing. */
+function freshSeed() {
+  return (Date.now() ^ (Math.random() * 2 ** 32)) >>> 0;
+}
+
+/** Screen visibility is one attribute, and the overlay is a function of the phase and nothing else. */
+function showPhase(phase) {
+  if (phase === phaseShown) return;
+
+  document.body.dataset.phase = phase;
+  if (phase === 'scare') {
+    jumpscare.show();
+  } else {
+    jumpscare.hide();
+  }
+
+  // A key held across a phase change would otherwise leak in as phantom movement.
+  if (phase !== 'playing') input.clear();
+  if (phase === 'playing') renderer.resize();
+
+  phaseShown = phase;
+}
+
+// The audio context has to be built inside the click handler: browsers block audio started outside
+// a user gesture, and a silent scare would defeat the whole app.
+startButton.addEventListener('click', () => {
+  audio.unlock();
+  state = pressStart(state);
+});
+
+screensEl.addEventListener('click', (event) => {
+  const level = event.target.dataset.level;
+  if (level) state = startLevel(state, level, freshSeed());
+});
+
+window.addEventListener('resize', () => renderer.resize());
+
+// One loop in every phase, since `step` also advances the scare clock.
+function frame(now) {
+  const dt = lastFrame ? (now - lastFrame) / 1000 : 0;
+  lastFrame = now;
+
+  state = step(state, dt, input.vector());
+  showPhase(state.phase);
+  if (state.phase === 'playing') renderer.draw(state);
+
+  requestAnimationFrame(frame);
+}
+
+input.attach();
+renderer.resize();
+showPhase(state.phase);
+requestAnimationFrame(frame);
     </script>
   </body>
 </html>
