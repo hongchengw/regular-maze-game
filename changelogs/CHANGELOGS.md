@@ -2,6 +2,39 @@
 
 Newest first. One entry per completed task.
 
+## Task 07 - Keyboard and d-pad input - 2026-07-29 11:14 PM EDT
+
+**Added**
+- `src/input.js`: the frozen `KEY_MAP` covering WASD, the arrow keys, and the four D-pad ids;
+  `isGameKey(code)` so the listener knows exactly when to `preventDefault`; and `vectorFrom(heldSet)`
+  reducing held codes to a raw `{ dx, dy }`. Opposites cancel and unknown codes are ignored. The
+  vector is left unnormalized on purpose, since that is `game.step`'s job.
+- `createInput(dpadElement)` with `vector()`, `clear()`, `attach()`, and `detach()`. Keys are held,
+  not tapped. `blur` and `visibilitychange` clear the held set so a key held across a phase change
+  cannot leak in as phantom movement, and `pointerup`/`pointercancel` are bound on `window` as well
+  as on each button so a finger released off a button's edge still stops the blob.
+- `tests/input.test.js`, 11 cases: the empty set, each single direction with `up` as `dy: -1`, WASD
+  and arrows agreeing, diagonals, opposites cancelling in all three combinations, a three-key case,
+  unknown codes, D-pad ids matching their keys, a mixed key and D-pad diagonal, `isGameKey` on the
+  eight movement codes and four non-game codes, and the map being frozen.
+- `src/index.html`: D-pad markup, four real `<button>` elements with `aria-label`s and `data-code`
+  attributes, plus `data-phase="title"` on `<body>` as the single visibility switch.
+
+**Changed**
+- `src/styles.css`: the D-pad as a 3x3 grid fixed bottom-centre with safe-area inset, 56 px minimum
+  tap targets, `touch-action: none` so a hold is not read as a scroll, and `user-select: none`. It is
+  displayed only under `@media (pointer: coarse)` and only while `body[data-phase='playing']`, so it
+  never appears on the title, select, or scare screens.
+
+**Deleted**
+- Nothing.
+
+**Notes**
+- Red run against a stub with a last-key-wins reducer, no arrow or D-pad entries, and an unfrozen
+  map: 8 of 11 cases failed on their assertions, including diagonals and every opposites case.
+- The listeners are the untested DOM edge, per the brief. The manual desktop and mobile checklist is
+  still outstanding: there is no entry point to open until task 10 wires it.
+
 ## Task 06 - Canvas rendering with fog of war - 2026-07-29 11:08 PM EDT
 
 **Added**

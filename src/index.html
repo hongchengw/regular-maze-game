@@ -9,7 +9,14 @@
     <title>Maze</title>
     <style>__STYLES__</style>
   </head>
-  <body>
+  <body data-phase="title">
+    <div class="dpad" id="dpad">
+      <button class="dpad-up" data-code="dpad-up" aria-label="Move up"></button>
+      <button class="dpad-left" data-code="dpad-left" aria-label="Move left"></button>
+      <button class="dpad-right" data-code="dpad-right" aria-label="Move right"></button>
+      <button class="dpad-down" data-code="dpad-down" aria-label="Move down"></button>
+    </div>
+
     <script type="module">
 const JUMPSCARE_SRC = "__ASSET_JUMPSCARE__";
 __SCRIPT__

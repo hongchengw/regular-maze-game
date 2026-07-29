@@ -23,6 +23,54 @@ body {
   background: #000;
 }
 
+/* The D-pad: a 3x3 grid with the four buttons in the cross positions, fixed bottom-centre.
+   Shown only while playing, and only where a coarse pointer is present. */
+.dpad {
+  display: none;
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  grid-template-columns: repeat(3, 64px);
+  grid-template-rows: repeat(3, 64px);
+  gap: 6px;
+  user-select: none;
+  z-index: 10;
+}
+
+@media (pointer: coarse) {
+  body[data-phase='playing'] .dpad {
+    display: grid;
+  }
+}
+
+.dpad button {
+  min-width: 56px;
+  min-height: 56px;
+  border: 1px solid #444;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.dpad button:active {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.dpad-up {
+  grid-area: 1 / 2;
+}
+.dpad-left {
+  grid-area: 2 / 1;
+}
+.dpad-right {
+  grid-area: 2 / 3;
+}
+.dpad-down {
+  grid-area: 3 / 2;
+}
+
 /* The jumpscare overlay. No animation, no transition, no keyframes, ever. */
 .jumpscare {
   position: fixed;
@@ -43,7 +91,14 @@ body {
   display: block;
 }</style>
   </head>
-  <body>
+  <body data-phase="title">
+    <div class="dpad" id="dpad">
+      <button class="dpad-up" data-code="dpad-up" aria-label="Move up"></button>
+      <button class="dpad-left" data-code="dpad-left" aria-label="Move left"></button>
+      <button class="dpad-right" data-code="dpad-right" aria-label="Move right"></button>
+      <button class="dpad-down" data-code="dpad-down" aria-label="Move down"></button>
+    </div>
+
     <script type="module">
 const JUMPSCARE_SRC = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFElEQVR42mPgIhEwjGoY1TB8NQAA9bMeAeVRnTAAAAAASUVORK5CYII=";
 // Entry point. Task 10 wires the real app; for now this only gives the graph walk a root.
