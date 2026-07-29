@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <title>Maze</title>
+    <style>html,
+body {
+  margin: 0;
+  background: #000;
+}
+
+/* The jumpscare overlay. No animation, no transition, no keyframes, ever. */
+.jumpscare {
+  position: fixed;
+  inset: 0;
+  background: #000;
+  display: none;
+  z-index: 9999;
+}
+
+.jumpscare.visible {
+  display: block;
+}
+
+.jumpscare img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}</style>
+  </head>
+  <body>
+    <script type="module">
+const JUMPSCARE_SRC = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFElEQVR42mPgIhEwjGoY1TB8NQAA9bMeAeVRnTAAAAAASUVORK5CYII=";
+// Entry point. Task 10 wires the real app; for now this only gives the graph walk a root.
+const APP_NAME = 'regular-maze-game';
+    </script>
+  </body>
+</html>

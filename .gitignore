@@ -1,0 +1,3 @@
+node_modules/
+
+# dist/ is deliberately not ignored. dist/index.html is a committed artifact.

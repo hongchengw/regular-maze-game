@@ -2,6 +2,42 @@
 
 Newest first. One entry per completed task.
 
+## Task 01 - Scaffold - 2026-07-29 10:57 PM EDT
+
+**Added**
+- `package.json`: private ES-module manifest with `test` and `build` scripts and no dependency
+  fields, runtime or dev.
+- `build/build.js`: dependency-free bundler exporting `resolveGraph`, `stripModuleSyntax`, and
+  `build`. Walks the relative-import graph depth first from `src/main.js`, emits dependencies before
+  dependents, throws on an unresolvable import or a cycle with the offending path in the message, and
+  substitutes `__STYLES__`, `__SCRIPT__`, and `__ASSET_JUMPSCARE__` into the HTML template. Importing
+  the module never builds; only running it does.
+- `src/index.html`: template with the pinch-zoom-disabled viewport meta and a
+  `const JUMPSCARE_SRC` line carrying the inlined asset.
+- `src/styles.css`: black page plus the `.jumpscare` overlay rules, which carry no `animation`,
+  `transition`, or `@keyframes`.
+- `src/main.js`: placeholder entry point so the graph walk has a root.
+- `assets/jumpscare.png`: small placeholder PNG. Replacing it and rerunning `node build/build.js` is
+  the entire swap procedure.
+- `tests/build.test.js`: 9 cases covering output existence, zero external references, stripped module
+  syntax, the inlined stylesheet, the decoded asset byte length, dependency ordering, diamond
+  deduplication, unresolvable imports, and cycles.
+- `tests/fixtures/{graph,diamond,missing,cycle}`: module fixtures so the ordering cases do not depend
+  on the real app's module list.
+- `dist/index.html`: generated, committed artifact.
+
+**Changed**
+- `.gitignore`: ignore `node_modules/`, with a note that `dist/` is deliberately not ignored.
+
+**Deleted**
+- Nothing.
+
+**Notes**
+- `SPEC.md` sections 1 to 4 were already written by the earlier consolidation pass, so this task
+  verified them rather than authoring them.
+- The `test` script globs `tests/**/*.test.js` so the fixture modules under `tests/fixtures/` are
+  never picked up as test files.
+
 ## Docs - Audit SPEC.md against the task briefs - 2026-07-29 07:34 AM EDT
 
 **Added**
