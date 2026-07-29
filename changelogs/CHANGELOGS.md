@@ -2,6 +2,39 @@
 
 Newest first. One entry per completed task.
 
+## Task 02 - Seeded maze generation - 2026-07-29 11:12 PM EDT
+
+**Added**
+- `src/rng.js`: `mulberry32(seed)`, the published float stream, kept verbatim so a seed yields the
+  same maze across Node versions and browsers.
+- `src/maze.js`: `generate(cols, rows, rng)` carves a perfect maze with a recursive backtracker over
+  an explicit stack, `toSegments(maze)` flattens it into `{x1,y1,x2,y2}` wall segments in cell units,
+  and `solve(maze)` returns the BFS start-to-exit path. Passages are a `Set` of canonical
+  `"c,r|c2,r2"` keys with the smaller cell first, which makes "is this boundary open" an O(1) lookup
+  and makes the no-duplicate-segment property fall out of the emit order.
+- `tests/maze.test.js`: 15 cases. RNG determinism, seed divergence, and range; the spanning-tree
+  passage count, flood-fill reachability, and a solid border; `solve` path adjacency and no repeats;
+  degenerate sizes throwing while 1x1 stays valid; and five segment cases covering the 1x1 border,
+  duplicate and reversed segments, integer cell-unit coordinates, the boundary-count identity, and a
+  carved passage leaving no wall behind.
+
+**Changed**
+- Nothing. `SPEC.md` sections 5 and 6 already carried the coordinate model and the generation rules,
+  so this task verified them against the brief rather than authoring them.
+
+**Deleted**
+- Nothing.
+
+**Notes**
+- Red run against stub exports: 9 of 15 cases failed on their assertions, including the spanning-tree
+  count (0 vs 63) and the 1x1 border segments (empty vs four). The 6 that passed vacuously were
+  covered once generation was real.
+- `generate` rejects any non-integer or sub-1 dimension, which covers the brief's `generate(0, 5)`
+  and `generate(5, 0)` cases.
+- A 24x24 maze generates in 12 ms, so the explicit stack is doing its job.
+- `src/main.js` still does not import these modules; task 10 wires them, so `dist/index.html` is
+  unchanged by this task.
+
 ## Task 01 - Scaffold - 2026-07-29 10:57 PM EDT
 
 **Added**
