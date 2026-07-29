@@ -2,6 +2,36 @@
 
 Newest first. One entry per completed task.
 
+## Task 03 - Swept circle collision - 2026-07-29 11:24 PM EDT
+
+**Added**
+- `src/collision.js` with `distancePointSegment`, `hitsWall`, and `sweep`. Contact is the blob
+  centre-to-segment distance strictly below `blobRadius + wallHalfThickness`, so exactly touching is
+  not a hit. The hot path compares squared distances while `distancePointSegment` still returns a
+  real distance, since tests assert on it directly. A zero-length segment degrades to plain point
+  distance instead of dividing by zero.
+- `sweep` divides the move into steps no longer than `radius / 2` and tests each one, returning the
+  first contact plus the last position that was itself clear. A start already in contact reports a
+  hit without moving, and a zero-length move tests the current position without looping.
+- `tests/collision.test.js`, 16 cases: five distance cases covering both end clamps and the
+  degenerate segment, five `hitsWall` cases including the strict-inequality boundary and a real 8x8
+  maze, and six `sweep` cases covering the anti-tunneling guard, the last-safe-position report, the
+  sub-step count bound, the zero-length move, and starting in contact.
+
+**Changed**
+- Nothing. `SPEC.md` section 7 already carried the collision rules, so this task verified them
+  against the brief rather than authoring them.
+
+**Deleted**
+- Nothing.
+
+**Notes**
+- Red run against a stub whose `sweep` tested only the destination: 10 of 16 cases failed on their
+  assertions. The anti-tunneling case behaved as the brief predicts, confirmed separately against a
+  point-only sweep built on the finished `hitsWall`: it reports `hit: false` for the move from
+  `(0.5, 0.5)` to `(0.5, 5.5)` across five walls while still passing the clear-move case.
+- No broad phase. Under 1200 segments per frame at HARD, so measure before optimizing.
+
 ## Task 02 - Seeded maze generation - 2026-07-29 11:12 PM EDT
 
 **Added**
