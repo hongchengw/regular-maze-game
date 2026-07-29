@@ -2,6 +2,42 @@
 
 Newest first. One entry per completed task.
 
+## Task 08 - Synthesized scream - 2026-07-29 11:21 PM EDT
+
+**Added**
+- `src/audio.js`: `SCREAM_DURATION` (4.0s), `PEAK_GAIN` (0.45), `buildScream(ctx, startTime)`, and
+  `createAudio(AudioContextCtor)`. `buildScream` schedules all four layers at once with no timers:
+  the noise impact through a lowpass sweeping 8 kHz to 200 Hz, two sawtooths detuned 15 cents gliding
+  1200 Hz to 180 Hz, bandpass grit tracking that same glide, and a 55 Hz sub. Everything runs through
+  a master gain capped at `PEAK_GAIN` into a `DynamicsCompressor` limiter, which is the last node
+  before the destination.
+- `createAudio` takes the constructor by injection so tests can pass a fake or `undefined`. `unlock`
+  builds the context once and resumes it, safe to call repeatedly, and is called from the START click
+  handler because browsers block audio outside a user gesture. Both entry points swallow failures, so
+  audio never blocks the jumpscare or throws into the animation loop.
+- `tests/audio.test.js`, 9 cases with a roughly 80-line hand-written fake context: the exact 4s
+  duration, `SCREAM_DURATION < SCARE_DURATION` imported from `game.js`, every layer scheduled,
+  nothing stopping after `startTime + SCREAM_DURATION`, nothing scheduled before `startTime`, the
+  master gain capped, the limiter connected to the destination, graceful degradation without Web
+  Audio, and the context being constructed only once across repeated unlocks.
+
+**Changed**
+- Nothing. `SPEC.md` section 12 already carried the audio rules and the layer table.
+
+**Deleted**
+- Nothing.
+
+**Notes**
+- Red run against a stub of one bare oscillator wired straight to the destination with a tail two
+  seconds past the window: 6 of 9 cases failed on their assertions.
+- The convolver tail was dropped. The brief calls it the one optional layer, to be dropped rather
+  than replaced with an asset.
+- The fake identifies the master gain as the gain node feeding the limiter, rather than having the
+  production code label its nodes for the test's benefit.
+- Noise buffers are generated once per context and held in a `WeakMap`, not regenerated per play.
+- The manual listening check and the iOS Safari gesture check are still outstanding: there is no
+  entry point to open until task 10 wires it.
+
 ## Task 07 - Keyboard and d-pad input - 2026-07-29 11:14 PM EDT
 
 **Added**
