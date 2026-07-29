@@ -2,6 +2,38 @@
 
 Newest first. One entry per completed task.
 
+## Docs - Audit SPEC.md against the task briefs - 2026-07-29 07:34 AM EDT
+
+**Added**
+- `SPEC.md` provenance note: the file is derived from `tasks/README.md` and the ten briefs, it
+  outranks code but not `tasks/`, and a disagreement with a brief means the spec is the bug. The
+  briefs carry product decisions locked with the user; `SPEC.md` did not exist when they were
+  agreed.
+- `SPEC.md` section 14 preamble stating the section introduces no new rule and only collects
+  absolutes already asserted by tests specified in `tasks/`.
+
+**Changed**
+- `SPEC.md` section 6: replaced "a zero or negative dimension throws" with the exact cases
+  `tasks/task-02-maze.md` specifies, `generate(0, 5, rng)` and `generate(5, 0, rng)`. Negative
+  dimensions were an extrapolation not present in the brief.
+- `SPEC.md` section 9: restored `tasks/task-05-game-state.md`'s wording for the hit counter, "tracked
+  in state for possible display but is not shown by default", replacing the harder "tracked in state
+  but is not displayed".
+
+**Deleted**
+- Nothing.
+
+**Notes**
+- Full audit of all fourteen sections against their briefs found no other drift. The six-column
+  difficulty table, the derived clearances, `MAX_DT`, `SCARE_DURATION`, `SCREAM_DURATION`,
+  `PEAK_GAIN`, `FIT`, the state shape, and all ten invariants trace to a brief.
+- Two defects found in `tasks/` itself and deliberately left unfixed, since those documents carry
+  the user's sign-off: `tasks/task-10-ui-wiring.md:49` asserts a build test over "eleven `src/*.js`
+  modules" while the module map in `tasks/README.md` lists ten; and `tasks/task-02-maze.md:90` keeps
+  `solve` available for "potentially a debug key later" while `tasks/task-10-ui-wiring.md:100`
+  forbids a debug key outright.
+- The earlier proposal to trim the overlapping sections out of `tasks/README.md` was dropped.
+
 ## Docs - Consolidate the task backlog into SPEC.md - 2026-07-29 07:17 AM EDT
 
 **Added**

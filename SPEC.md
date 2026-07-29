@@ -3,6 +3,10 @@
 The source of truth for every behavior of this app. Behavior changes land here first, then in code.
 If code and this file disagree, this file wins and the code is a bug.
 
+**Provenance.** This file is derived from `tasks/README.md` and the ten briefs in `tasks/`, whose
+product decisions were locked with the user before it existed. It outranks code, not `tasks/`. If
+this file and a brief disagree, the brief is right and this file is the bug.
+
 ## 1. Overview
 
 A blind maze game whose real payload is a jumpscare.
@@ -77,7 +81,7 @@ Screen coordinates: y grows downward, so `up` is `dy: -1`.
   boundary is emitted exactly once, so a wall shared by two cells is never duplicated and no segment
   is the reverse of another. Every coordinate is an integer in `[0, cols]` for x and `[0, rows]` for
   y.
-- `generate` with a zero or negative dimension throws. A 1x1 maze is valid and yields only the four
+- `generate(0, 5, rng)` and `generate(5, 0, rng)` throw. A 1x1 maze is valid and yields only the four
   border segments.
 - `solve` returns the start-to-exit path by BFS over carved passages, visiting no cell twice. It
   serves tests, not gameplay.
@@ -151,8 +155,8 @@ title --START--> select --level chosen--> playing --exit reached--> scare --afte
 - `playing`: the blob starts at the centre of cell `(0, 0)` and glides at `speed` cells per second
   in the held direction. Movement is resolved by the sweep in section 7.
 - **Wall hit:** the blob's position resets to the start cell centre. The maze layout is unchanged and
-  the seed is not regenerated, so the player keeps the mental map they built. A `hits` counter is
-  tracked in state but is not displayed.
+  the seed is not regenerated, so the player keeps the mental map they built. The hit count is
+  tracked in state for possible display but is not shown by default.
 - **Exit reached:** when the blob centre is within `exitRadius` of the centre of cell
   `(cols - 1, rows - 1)`, the phase becomes `scare` immediately. No win screen, no delay, no sound
   cue before the scare.
@@ -294,7 +298,9 @@ once and reused.
 
 ## 14. Invariants
 
-Absolutes that hold across the whole app and are enforced mechanically by tests:
+Absolutes that hold across the whole app and are enforced mechanically by tests. This section states
+no new rule: every item is asserted by a test specified in `tasks/`, collected here so the absolutes
+are readable in one place.
 
 - **Never persists.** No `localStorage`, `sessionStorage`, `indexedDB`, or `document.cookie` anywhere
   in `src/`. No scores, no settings, no progress.
