@@ -2,6 +2,32 @@
 
 Newest first. One entry per completed task.
 
+## Docs - Consolidate the task backlog into SPEC.md - 2026-07-29 07:17 AM EDT
+
+**Added**
+- `SPEC.md`, the single source of truth `AGENTS.md` and `tasks/README.md` both reference but which
+  did not exist. Fourteen sections consolidating every behavioral decision from the ten task briefs:
+  overview, screens, build and distribution, assets, coordinate model, maze generation, collision,
+  difficulty, game phases, rendering and fog, input, audio, jumpscare, and a closing invariants list.
+- The full EASY/MEDIUM/HARD tuning table with derived corridor clearance and the playability guards
+  (`blobRadius + wallHalfThickness < 0.5`, `fogRadius > blobRadius * 2`, `cols === rows`).
+- An "Invariants" section collecting the absolutes tests enforce mechanically: never persists, never
+  networks, no flashes, no exit marker, no HUD, verbatim warning text,
+  `SCREAM_DURATION < SCARE_DURATION`, and `blobRadius / 2 < exitRadius`.
+
+**Changed**
+- Nothing. No source, build, or test files were touched; `src/` is still empty.
+
+**Deleted**
+- Nothing.
+
+**Notes**
+- Every section is written rather than stubbed. `tasks/task-01-scaffold.md` expected sections 5
+  onward to be TBD and filled in per task; later tasks now verify against the spec instead of
+  authoring it.
+- Process content stays in `tasks/`. `SPEC.md` carries behavior and numbers only: no test tables, no
+  commit subjects, no changelog rules, no files-touched lists.
+
 ## Chore - Clarify AGENTS.md failing-test rationale and commit tooling - 2026-07-28 06:54 AM EDT
 
 **Added**
