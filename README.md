@@ -1,6 +1,6 @@
 # Regular Maze Game
 
-A reguler maze game. A prize awaits for you at the end to claim...
+A reguler maze game.
 
 ## Build
 
