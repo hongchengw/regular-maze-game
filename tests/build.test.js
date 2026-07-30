@@ -13,6 +13,7 @@ const root = path.resolve(here, '..');
 const fixtures = path.join(here, 'fixtures');
 
 const ASSET = path.join(root, 'assets', 'jumpscare.jpg');
+const SOUND = path.join(root, 'assets', 'regular_sound.mp3');
 
 /** Build a fixture source tree to a throwaway file, so dist/ is never touched by these cases. */
 function buildFixture(name, assetFile = ASSET) {
@@ -74,6 +75,18 @@ test('output inlines the jumpscare asset', () => {
   assert.ok(decoded.equals(onDisk), 'and should be the same bytes, not merely the same length');
 });
 
+test('output inlines the scare sound', () => {
+  assert.ok(output.includes('data:audio/mpeg;base64,'), 'the shipped sound is an mp3 data URI');
+
+  const match = output.match(/data:audio\/mpeg;base64,([A-Za-z0-9+/=]+)/);
+  assert.ok(match, 'the data URI should carry base64 payload');
+
+  const decoded = Buffer.from(match[1], 'base64');
+  const onDisk = fs.readFileSync(SOUND);
+  assert.equal(decoded.length, onDisk.length, 'decoded bytes should match the file on disk');
+  assert.ok(decoded.equals(onDisk), 'and should be the same bytes, not merely the same length');
+});
+
 test('the media type follows the asset extension', () => {
   assert.equal(mimeFor('a/b/jumpscare.jpg'), 'image/jpeg');
   assert.equal(mimeFor('jumpscare.jpeg'), 'image/jpeg');
@@ -82,6 +95,12 @@ test('the media type follows the asset extension', () => {
   assert.equal(mimeFor('jumpscare.gif'), 'image/gif');
   assert.equal(mimeFor('jumpscare.avif'), 'image/avif');
   assert.equal(mimeFor('JUMPSCARE.JPG'), 'image/jpeg', 'the extension is matched case-insensitively');
+
+  // The sound is swapped the same way the image is, so its formats are recognised the same way.
+  assert.equal(mimeFor('assets/regular_sound.mp3'), 'audio/mpeg');
+  assert.equal(mimeFor('regular_sound.ogg'), 'audio/ogg');
+  assert.equal(mimeFor('regular_sound.wav'), 'audio/wav');
+  assert.equal(mimeFor('regular_sound.m4a'), 'audio/mp4');
 });
 
 test('an unrecognised asset type fails the build', () => {

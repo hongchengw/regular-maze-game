@@ -129,10 +129,11 @@ swapping in a different format is also just a file swap: `.png`, `.jpg`/`.jpeg`,
 extension fails the build with the offending path, rather than emitting a data URI whose declared
 type is a guess the browser will refuse to decode.
 
-**The sound dominates the bundle size.** 113 KB of mp3 is about 155 KB of base64, taking
-`dist/index.html` from roughly 53 KB to roughly 208 KB. That is the price of the
-zero-external-requests rule in section 3 and it is paid knowingly: one file that works offline, from
-the filesystem, and with no second round trip before the scare can fire.
+**The two assets dominate the bundle size.** Base64 costs a third on top of the bytes, so 113 KB of
+mp3 is about 155 KB and 53 KB of jpeg is about 72 KB. `dist/index.html` is roughly 267 KB, of which
+under 20 KB is the app. That is the price of the zero-external-requests rule in section 3 and it is
+paid knowingly: one file that works offline, from the filesystem, and with no round trip before the
+scare can fire.
 
 ## 5. Coordinate model
 

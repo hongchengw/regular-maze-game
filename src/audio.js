@@ -1,13 +1,20 @@
-// The scare sound and the ambient music, both synthesized with the Web Audio API. No audio file and
-// no base64 audio blob, so the bundle stays small and the scream is exactly 4 seconds by
-// construction rather than by however long a sourced clip happens to run.
+// The scare sound and the ambient music. The sound is the user's file, inlined by the build and
+// decoded here; the music is synthesized, since a drone is cheaper to generate than to ship.
+//
+// The file is played through this module's `AudioContext` rather than through an `<audio>` element.
+// That is deliberate three times over: the bundle's Content-Security-Policy needs no `media-src`,
+// no network API is used to obtain the bytes so the never-networks rule holds without an exception,
+// and the sound is gated behind the same user-gesture unlock the music already needs.
 //
 // Nothing here reads game state or touches the DOM. The title screen is silent, wall contact makes
-// no sound, and the music is cut before the scream is scheduled, so the scream still lands into
+// no sound, and the music is cut before the sound is scheduled, so the scare still lands into
 // silence, which is what makes it land at all.
 
-/** Seconds. Shorter than the image, so the scare always ends in silence rather than in a cut-off. */
-export const SCREAM_DURATION = 4.0;
+/**
+ * Seconds. A **ceiling**, not the file's length: the source is stopped here whatever the supplied
+ * sound happens to run to, so a longer file swapped in later cannot outlive the image.
+ */
+export const SCREAM_DURATION = 5.0;
 
 /** Master gain ceiling. Startling, not damaging. */
 export const PEAK_GAIN = 0.45;
@@ -21,33 +28,29 @@ export const MUSIC_GAIN = 0.05;
 /** Seconds the music takes to ramp away when stopped. An abrupt stop would click. */
 const MUSIC_FADE = 0.3;
 
-/** Seconds of white noise generated once per context and reused across plays. */
-const NOISE_SECONDS = 4.0;
+/**
+ * Decode the inlined sound into an `AudioBuffer`. The payload is read out of the data URI with
+ * `atob`, so the bytes are already in the document and no network API is needed to reach them.
+ */
+export function decodeScream(ctx, dataUri) {
+  const payload = dataUri.slice(dataUri.indexOf(',') + 1);
+  const binary = atob(payload);
 
-const noiseBuffers = new WeakMap();
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
 
-/** White noise, generated once per context. */
-function noiseBuffer(ctx) {
-  const cached = noiseBuffers.get(ctx);
-  if (cached) return cached;
-
-  const length = Math.floor(ctx.sampleRate * NOISE_SECONDS);
-  const buffer = ctx.createBuffer(1, length, ctx.sampleRate);
-  const data = buffer.getChannelData(0);
-  for (let i = 0; i < length; i += 1) data[i] = Math.random() * 2 - 1;
-
-  noiseBuffers.set(ctx, buffer);
-  return buffer;
+  return ctx.decodeAudioData(bytes.buffer);
 }
 
 /**
- * Schedule the four layers of the scream at `startTime`, all at once and with no timers. Returns
- * the scheduled source nodes. Nothing is scheduled before `startTime` and nothing outlives
- * `startTime + SCREAM_DURATION`.
+ * Schedule the decoded sound at `startTime`, capped under the image. Nothing is scheduled before
+ * `startTime` and nothing outlives `startTime + SCREAM_DURATION`. Returns the source node.
+ *
+ * The graph is `source -> master gain -> limiter -> destination`, which is the same ceiling the
+ * synthesized scream this replaced ran through, so a hot-mastered file cannot come out louder than
+ * the sound it replaced.
  */
-export function buildScream(ctx, startTime) {
-  const end = startTime + SCREAM_DURATION;
-
+export function buildScream(ctx, buffer, startTime) {
   // A limiter is the last thing before the destination, as a safety net under the master cap.
   const limiter = ctx.createDynamicsCompressor();
   limiter.threshold.setValueAtTime(-12, startTime);
@@ -61,80 +64,13 @@ export function buildScream(ctx, startTime) {
   master.gain.setValueAtTime(PEAK_GAIN, startTime);
   master.connect(limiter);
 
-  const sources = [];
+  const source = ctx.createBufferSource();
+  source.buffer = buffer;
+  source.connect(master);
+  source.start(startTime);
+  source.stop(startTime + SCREAM_DURATION);
 
-  // Layer 1, impact: a white-noise burst through a lowpass sweeping 8 kHz down to 200 Hz.
-  const impact = ctx.createBufferSource();
-  impact.buffer = noiseBuffer(ctx);
-  const impactFilter = ctx.createBiquadFilter();
-  impactFilter.type = 'lowpass';
-  impactFilter.frequency.setValueAtTime(8000, startTime);
-  impactFilter.frequency.exponentialRampToValueAtTime(200, startTime + 0.25);
-  const impactGain = ctx.createGain();
-  impactGain.gain.setValueAtTime(0.0001, startTime);
-  impactGain.gain.linearRampToValueAtTime(1, startTime + 0.01);
-  impactGain.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.25);
-  impact.connect(impactFilter);
-  impactFilter.connect(impactGain);
-  impactGain.connect(master);
-  impact.start(startTime);
-  impact.stop(startTime + 0.3);
-  sources.push(impact);
-
-  // Layer 2, scream body: two sawtooths detuned about 15 cents, gliding 1200 Hz down to 180 Hz.
-  const bodyGain = ctx.createGain();
-  bodyGain.gain.setValueAtTime(0.0001, startTime);
-  bodyGain.gain.linearRampToValueAtTime(0.8, startTime + 0.02);
-  bodyGain.gain.setValueAtTime(0.8, startTime + 2.8);
-  bodyGain.gain.exponentialRampToValueAtTime(0.0001, startTime + 3.4);
-  bodyGain.connect(master);
-
-  for (const detune of [-15, 15]) {
-    const osc = ctx.createOscillator();
-    osc.type = 'sawtooth';
-    osc.detune.setValueAtTime(detune, startTime);
-    osc.frequency.setValueAtTime(1200, startTime);
-    osc.frequency.exponentialRampToValueAtTime(180, startTime + 3.4);
-    osc.connect(bodyGain);
-    osc.start(startTime);
-    osc.stop(end);
-    sources.push(osc);
-  }
-
-  // Layer 3, grit: bandpass-filtered noise tracking the scream's pitch, at a lower gain.
-  const grit = ctx.createBufferSource();
-  grit.buffer = noiseBuffer(ctx);
-  const gritFilter = ctx.createBiquadFilter();
-  gritFilter.type = 'bandpass';
-  gritFilter.Q.setValueAtTime(1.2, startTime);
-  gritFilter.frequency.setValueAtTime(1200, startTime);
-  gritFilter.frequency.exponentialRampToValueAtTime(180, startTime + 3.4);
-  const gritGain = ctx.createGain();
-  gritGain.gain.setValueAtTime(0.0001, startTime);
-  gritGain.gain.linearRampToValueAtTime(0.35, startTime + 0.05);
-  gritGain.gain.exponentialRampToValueAtTime(0.0001, startTime + 3.4);
-  grit.connect(gritFilter);
-  gritFilter.connect(gritGain);
-  gritGain.connect(master);
-  grit.start(startTime);
-  grit.stop(end);
-  sources.push(grit);
-
-  // Layer 4, sub: a 55 Hz sine for chest weight.
-  const sub = ctx.createOscillator();
-  sub.type = 'sine';
-  sub.frequency.setValueAtTime(55, startTime);
-  const subGain = ctx.createGain();
-  subGain.gain.setValueAtTime(0.0001, startTime);
-  subGain.gain.linearRampToValueAtTime(0.7, startTime + 0.02);
-  subGain.gain.exponentialRampToValueAtTime(0.0001, startTime + 1.2);
-  sub.connect(subGain);
-  subGain.connect(master);
-  sub.start(startTime);
-  sub.stop(startTime + 1.3);
-  sources.push(sub);
-
-  return sources;
+  return source;
 }
 
 /**
@@ -203,9 +139,33 @@ export function buildMusic(ctx) {
  * Wrap the scream and the music in a context lifecycle. The constructor is injected so tests can
  * pass a fake or `undefined`; `main.js` passes `window.AudioContext || window.webkitAudioContext`.
  */
-export function createAudio(AudioContextCtor) {
+export function createAudio(AudioContextCtor, screamSrc) {
   let ctx = null;
+  let scream = null;
+  let decoded = false;
   let music = null;
+
+  /**
+   * Decode the sound once and keep it. Decoding takes milliseconds and the player is minutes from
+   * the scare, so it is always ready by the time it is needed. Doing it per scare would stall the
+   * one frame in the whole app that must not stall.
+   */
+  function decodeOnce() {
+    if (!ctx || decoded || !screamSrc) return;
+    decoded = true;
+    try {
+      Promise.resolve(decodeScream(ctx, screamSrc)).then(
+        (buffer) => {
+          scream = buffer;
+        },
+        () => {
+          // A file that will not decode leaves the scare silent, never broken.
+        },
+      );
+    } catch (err) {
+      // As above.
+    }
+  }
 
   // Browsers block audio started outside a user gesture, so unlock() is called from the START
   // click handler. Calling it again is harmless.
@@ -214,6 +174,7 @@ export function createAudio(AudioContextCtor) {
     try {
       if (!ctx) ctx = new AudioContextCtor();
       if (ctx.state === 'suspended') ctx.resume();
+      decodeOnce();
     } catch (err) {
       ctx = null;
     }
@@ -224,7 +185,7 @@ export function createAudio(AudioContextCtor) {
     if (!AudioContextCtor) return;
     try {
       unlock();
-      if (ctx) buildScream(ctx, ctx.currentTime + 0.01);
+      if (ctx && scream) buildScream(ctx, scream, ctx.currentTime + 0.01);
     } catch (err) {
       // Swallowed on purpose: the visual scare still runs.
     }

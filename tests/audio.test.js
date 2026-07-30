@@ -4,7 +4,18 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { SCARE_DURATION } from '../src/game.js';
-import { SCREAM_DURATION, PEAK_GAIN, MUSIC_GAIN, buildScream, buildMusic, createAudio } from '../src/audio.js';
+import {
+  SCREAM_DURATION,
+  PEAK_GAIN,
+  MUSIC_GAIN,
+  buildScream,
+  buildMusic,
+  decodeScream,
+  createAudio,
+} from '../src/audio.js';
+
+/** A one-byte payload in the shape the bundler emits, so `decodeScream` has something to slice. */
+const SCREAM_SRC = 'data:audio/mpeg;base64,QQ==';
 
 // Comments are stripped, so prose about the ordering below does not read as the ordering itself.
 const mainSource = fs
@@ -15,7 +26,7 @@ const mainSource = fs
 // A hand-written fake Web Audio context. It records what was created, scheduled, and connected, so
 // the scheduling can be asserted in plain Node. No mock package: the repo has zero dependencies.
 function fakeContext() {
-  const log = { created: [], starts: [], stops: [], ramps: [], connections: [] };
+  const log = { created: [], starts: [], stops: [], ramps: [], connections: [], decodes: [] };
   let counter = 0;
   let sequence = 0;
 
@@ -96,20 +107,22 @@ function fakeContext() {
       for (const key of ['threshold', 'knee', 'ratio', 'attack', 'release']) self[key] = param(self.label);
       return self;
     },
-    createBuffer(channels, length, sampleRate) {
-      return { length, sampleRate, getChannelData: () => new Float32Array(length) };
+    // Resolves to a marker object, so a test can tell the played buffer came from here and was not
+    // built in code.
+    decodeAudioData(bytes) {
+      log.decodes.push({ byteLength: bytes.byteLength, seq: seq() });
+      return Promise.resolve(DECODED);
     },
   };
 
   return { ctx, log };
 }
 
-/** The master gain is the gain node feeding the limiter, found without labelling the production code. */
-function masterGainValues(log) {
-  const compressor = log.created.find((n) => n.kind === 'compressor');
-  const feeding = log.connections.filter((c) => c.to === compressor.label).map((c) => c.from);
-  return log.ramps.filter((r) => feeding.includes(r.label)).map((r) => r.value);
-}
+/** The object the fake's `decodeAudioData` resolves to. */
+const DECODED = { decoded: true, duration: 4.83 };
+
+/** Let the decode promise settle, since `unlock` starts it and does not wait for it. */
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 /**
  * Every node whose signal reaches the destination. An LFO's depth feeds an AudioParam rather than a
@@ -140,74 +153,89 @@ function fakeAudio() {
   function FakeAudioContext() {
     return ctx;
   }
-  return { audio: createAudio(FakeAudioContext), log };
+  return { audio: createAudio(FakeAudioContext, SCREAM_SRC), log };
 }
 
-test('SCREAM_DURATION is exactly 4', () => {
-  assert.equal(SCREAM_DURATION, 4.0);
-});
+/** An audio object that has been unlocked and whose sound has finished decoding. */
+async function readyAudio() {
+  const wired = fakeAudio();
+  wired.audio.unlock();
+  await settle();
+  return wired;
+}
 
-test('scream duration is shorter than the scare', () => {
+test('SCREAM_DURATION is a ceiling under the image', () => {
+  assert.equal(SCREAM_DURATION, 5.0);
   assert.ok(
     SCREAM_DURATION < SCARE_DURATION,
-    'the image must outlast the sound, leaving silence rather than a loop',
+    'the image must outlast the sound, leaving silence rather than a cut-off',
   );
 });
 
-test('buildScream schedules every layer', () => {
-  const { ctx, log } = fakeContext();
-  buildScream(ctx, 0);
+test('the sound is decoded once, on the gesture', async () => {
+  const { audio, log } = await readyAudio();
 
-  const kinds = log.created.map((n) => n.kind);
-  const sawtooths = log.created.filter((n) => n.kind === 'oscillator' && n.type === 'sawtooth');
-  const sines = log.created.filter((n) => n.kind === 'oscillator' && n.type === 'sine');
+  audio.unlock();
+  audio.playScream();
+  audio.playScream();
+  await settle();
 
-  assert.ok(kinds.includes('buffer-source'), 'the impact and grit layers need noise buffer sources');
-  assert.equal(sawtooths.length, 2, 'the scream body is two detuned sawtooths');
-  assert.ok(sines.length >= 1, 'the sub layer is a sine');
-  assert.ok(kinds.filter((k) => k === 'filter').length >= 2, 'a lowpass and a bandpass at least');
+  assert.equal(log.decodes.length, 1, 'decoding per scare would stall the one frame that must not');
 });
 
-test('every scheduled node stops by the duration', () => {
-  const { ctx, log } = fakeContext();
-  const startTime = 3;
-  buildScream(ctx, startTime);
+test('the scare plays the decoded buffer', async () => {
+  const { audio, log } = await readyAudio();
+  audio.playScream();
 
-  assert.ok(log.stops.length > 0, 'fixture check: something should be scheduled to stop');
+  const sources = log.created.filter((n) => n.kind === 'buffer-source');
+  assert.equal(sources.length, 1, 'the scare is one source, not a stack of synthesized layers');
+  assert.equal(sources[0].buffer, DECODED, 'it plays what decodeAudioData returned');
+});
+
+test('the sound cannot outlive the image', async () => {
+  const { audio, log } = await readyAudio();
+  audio.playScream();
+
+  assert.ok(log.stops.length > 0, 'fixture check: the source should be scheduled to stop');
   for (const stop of log.stops) {
+    const started = log.starts.find((s) => s.label === stop.label);
     assert.ok(
-      stop.time <= startTime + SCREAM_DURATION + 1e-9,
-      `${stop.label} outlives the 4s window at ${stop.time}`,
+      stop.time - started.time <= SCREAM_DURATION + 1e-9,
+      `${stop.label} runs ${stop.time - started.time}s, past the ceiling`,
     );
   }
+  // The ceiling is enforced whatever the file's own length is, so a longer file swapped in later is
+  // cut rather than left playing over a title screen.
+  assert.ok(SCREAM_DURATION < SCARE_DURATION);
 });
 
-test('nothing is scheduled before the start time', () => {
-  const { ctx, log } = fakeContext();
-  const startTime = 3;
-  buildScream(ctx, startTime);
-
-  for (const event of [...log.starts, ...log.ramps]) {
-    assert.ok(event.time >= startTime - 1e-9, `${event.label} fires at ${event.time}, before the start`);
-  }
-});
-
-test('master gain is capped', () => {
-  const { ctx, log } = fakeContext();
-  buildScream(ctx, 0);
+test('the scare is capped at PEAK_GAIN', async () => {
+  const { audio, log } = await readyAudio();
+  audio.playScream();
 
   assert.ok(PEAK_GAIN <= 0.5, 'the cap itself must stay startling rather than damaging');
 
-  const values = masterGainValues(log);
-  assert.ok(values.length > 0, 'fixture check: the master gain should be scheduled');
-  for (const value of values) {
-    assert.ok(value <= PEAK_GAIN + 1e-9, `master gain reached ${value}, above PEAK_GAIN`);
+  const gains = pathGains(log);
+  assert.ok(gains.length > 0, 'fixture check: the sound should reach the destination through a gain');
+  for (const ramp of log.ramps.filter((r) => gains.includes(r.label))) {
+    assert.ok(ramp.value <= PEAK_GAIN + 1e-9, `the scare scheduled ${ramp.value}, above PEAK_GAIN`);
   }
 });
 
-test('a limiter sits before the destination', () => {
-  const { ctx, log } = fakeContext();
-  buildScream(ctx, 0);
+test('the scare synthesizes nothing', async () => {
+  const { audio, log } = await readyAudio();
+  audio.playScream();
+
+  assert.equal(
+    log.created.filter((n) => n.kind === 'oscillator').length,
+    0,
+    'the only oscillators the app creates are the ambient music\'s',
+  );
+});
+
+test('a limiter sits before the destination', async () => {
+  const { audio, log } = await readyAudio();
+  audio.playScream();
 
   const compressor = log.created.find((n) => n.kind === 'compressor');
   assert.ok(compressor, 'a DynamicsCompressor should be created as a safety limiter');
@@ -217,8 +245,40 @@ test('a limiter sits before the destination', () => {
   );
 });
 
+test('nothing is scheduled before the start time', async () => {
+  const { ctx, log } = fakeContext();
+  const startTime = 3;
+  buildScream(ctx, DECODED, startTime);
+
+  for (const event of [...log.starts, ...log.ramps]) {
+    assert.ok(event.time >= startTime - 1e-9, `${event.label} fires at ${event.time}, before the start`);
+  }
+});
+
+test('decodeScream reads the payload out of the data URI', async () => {
+  const { ctx, log } = fakeContext();
+  await decodeScream(ctx, SCREAM_SRC);
+
+  assert.equal(log.decodes.length, 1);
+  assert.equal(log.decodes[0].byteLength, 1, 'the base64 prefix is stripped and the bytes decoded');
+});
+
+test('a failed decode never blocks the image', async () => {
+  const { ctx } = fakeContext();
+  ctx.decodeAudioData = () => Promise.reject(new Error('corrupt file'));
+  function FakeAudioContext() {
+    return ctx;
+  }
+
+  const audio = createAudio(FakeAudioContext, SCREAM_SRC);
+  audio.unlock();
+  await settle();
+
+  assert.doesNotThrow(() => audio.playScream(), 'the visual scare still runs when the sound cannot');
+});
+
 test('missing AudioContext degrades gracefully', () => {
-  const audio = createAudio(undefined);
+  const audio = createAudio(undefined, SCREAM_SRC);
 
   assert.equal(audio.available, false);
   assert.doesNotThrow(() => audio.unlock(), 'unlock must not throw without Web Audio');
@@ -284,9 +344,10 @@ test('stopMusic stops everything it started', () => {
   assert.ok(last.value <= 0.001, `the gain ended at ${last.value}, not near silence`);
 });
 
-test('stopMusic before the scream', () => {
+test('stopMusic before the scream', async () => {
   const { audio, log } = fakeAudio();
   audio.startMusic();
+  await settle();
 
   const musicNodes = new Set(log.created.map((n) => n.label));
   audio.stopMusic();
@@ -297,6 +358,7 @@ test('stopMusic before the scream', () => {
     ...[...log.starts, ...log.ramps].filter((e) => !musicNodes.has(e.label)).map((e) => e.seq),
   );
 
+  assert.ok(Number.isFinite(screamFirst), 'fixture check: the scare sound should have been built');
   assert.ok(musicStop < screamFirst, 'the music must be stopped before a single scream node is built');
 
   // The ordering above only holds if the app calls them in that order, and that call site is a DOM

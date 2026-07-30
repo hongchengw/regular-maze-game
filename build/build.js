@@ -81,7 +81,7 @@ export function assertInlineStyleSafe(css, file) {
   return css;
 }
 
-/** Image media types the inliner recognises, keyed by file extension. */
+/** Media types the inliner recognises, keyed by file extension. Images first, then audio. */
 const MEDIA_TYPES = Object.freeze({
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
@@ -89,21 +89,31 @@ const MEDIA_TYPES = Object.freeze({
   '.webp': 'image/webp',
   '.gif': 'image/gif',
   '.avif': 'image/avif',
+  '.mp3': 'audio/mpeg',
+  '.ogg': 'audio/ogg',
+  '.wav': 'audio/wav',
+  '.m4a': 'audio/mp4',
 });
 
 /**
- * Media type for an asset, from its extension, so swapping the jumpscare for a different format is
- * still just a file swap. Guessing here would ship a data URI the browser refuses to decode and the
- * scare would be a blank screen with nothing logged anywhere, so an unknown type fails the build.
+ * Media type for an asset, from its extension, so swapping the jumpscare image or the scare sound
+ * for a different format is still just a file swap. Guessing here would ship a data URI the browser
+ * refuses to decode and the scare would be a blank screen or a silent one with nothing logged
+ * anywhere, so an unknown type fails the build.
  */
 export function mimeFor(file) {
   const ext = path.extname(file).toLowerCase();
   const type = Object.prototype.hasOwnProperty.call(MEDIA_TYPES, ext) ? MEDIA_TYPES[ext] : null;
   if (!type) {
     const known = Object.keys(MEDIA_TYPES).join(', ');
-    throw new Error(`Cannot inline '${rel(file)}': unknown image type '${ext}'. Expected one of ${known}`);
+    throw new Error(`Cannot inline '${rel(file)}': unknown asset type '${ext}'. Expected one of ${known}`);
   }
   return type;
+}
+
+/** Read a file as a data URI, with its media type derived from the extension. */
+function dataUri(file) {
+  return `data:${mimeFor(file)};base64,${fs.readFileSync(file).toString('base64')}`;
 }
 
 /** CSP source expression for an inline block, hashed over exactly the text that ships. */
@@ -115,6 +125,7 @@ function sha256Source(text) {
 export function build({
   srcDir = path.join(ROOT, 'src'),
   assetFile = path.join(ROOT, 'assets', 'jumpscare.jpg'),
+  soundFile = path.join(ROOT, 'assets', 'regular_sound.mp3'),
   outFile = path.join(ROOT, 'dist', 'index.html'),
 } = {}) {
   const script = escapeInlineScript(
@@ -126,7 +137,8 @@ export function build({
 
   const styleFile = path.join(srcDir, 'styles.css');
   const styles = assertInlineStyleSafe(fs.readFileSync(styleFile, 'utf8').trim(), rel(styleFile));
-  const asset = `data:${mimeFor(assetFile)};base64,${fs.readFileSync(assetFile).toString('base64')}`;
+  const asset = dataUri(assetFile);
+  const sound = dataUri(soundFile);
 
   // Newlines are normalized to LF before anything is hashed or written. An HTML parser normalizes
   // CRLF to LF before hashing an inline block, so a CRLF checkout would otherwise ship a policy
@@ -135,6 +147,7 @@ export function build({
     .readFileSync(path.join(srcDir, 'index.html'), 'utf8')
     .replace('__STYLES__', () => styles)
     .replace('__ASSET_JUMPSCARE__', () => asset)
+    .replace('__ASSET_SCREAM__', () => sound)
     .replace('__SCRIPT__', () => script)
     .replace(/\r\n/g, '\n');
 

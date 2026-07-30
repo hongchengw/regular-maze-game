@@ -19,7 +19,7 @@ const overlayEl = document.getElementById('jumpscare');
 
 const renderer = createRenderer(canvasEl);
 const input = createInput(dpadEl);
-const audio = createAudio(window.AudioContext || window.webkitAudioContext);
+const audio = createAudio(window.AudioContext || window.webkitAudioContext, SCREAM_SRC);
 const jumpscare = createJumpscare(overlayEl, overlayEl.querySelector('img'), audio, JUMPSCARE_SRC);
 
 let state = createGame();

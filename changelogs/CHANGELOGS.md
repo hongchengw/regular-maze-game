@@ -2,6 +2,69 @@
 
 Newest first. One entry per completed task.
 
+## Task 17 - Supplied scare sound - 2026-07-30 06:01 AM EDT
+
+The scare plays `assets/regular_sound.mp3`, in sync with the image, through the same gain and limiter
+the synthesized scream ran through. **The four-layer synthesized scream is deleted.** It was always a
+stand-in for a real sound in a repo with no audio pipeline, and there is now a real sound.
+
+**Added**
+- `assets/regular_sound.mp3`, committed: MPEG-1 Layer III, 192 kbps, 44.1 kHz stereo, 116,120 bytes,
+  4.83 seconds.
+- `src/audio.js`: `decodeScream(ctx, dataUri)`, which slices the payload out of the inlined data URI,
+  `atob`s it into a `Uint8Array`, and hands the bytes to `decodeAudioData`.
+- `build/build.js`: `MEDIA_TYPES` gains `.mp3`, `.ogg`, `.wav`, and `.m4a`; a `dataUri` helper, since
+  two assets are now inlined the same way; and a `soundFile` option filling a new `__ASSET_SCREAM__`
+  placeholder.
+- `src/index.html`: `const SCREAM_SRC = "__ASSET_SCREAM__";` beside `JUMPSCARE_SRC`.
+- `tests/audio.test.js`: 7 new cases and a `decodeAudioData` on the fake context. The sound is
+  decoded exactly once across two `unlock()` and two `playScream()` calls; the played source carries
+  the buffer `decodeAudioData` returned rather than one built in code; every source stops within
+  `SCREAM_DURATION` of starting; no gain on the path to the destination exceeds `PEAK_GAIN`; the
+  scare creates **zero** oscillators, so the synthesis cannot creep back; `decodeScream` strips the
+  base64 prefix and decodes the right byte count; and a rejected decode leaves `playScream`
+  harmless.
+- `tests/build.test.js`: `output inlines the scare sound`, asserting the bundle's `data:audio/mpeg`
+  payload decodes to exactly the bytes on disk, mirroring the image case, plus the four new
+  `mimeFor` mappings.
+
+**Changed**
+- `src/audio.js`: `buildScream(ctx, startTime)` becomes `buildScream(ctx, buffer, startTime)` and is
+  now `source -> master gain -> limiter -> destination`. The exported name is kept, since
+  `tests/build.test.js` pins it as this module's symbol and the module's job did not change.
+  `SCREAM_DURATION` is 4.0 seconds becomes 5.0 and is redefined as a **ceiling**: the source is
+  stopped there whatever the file's own length is, so a longer file swapped in later is cut rather
+  than left playing over the title screen.
+- `src/audio.js`: `createAudio(Ctor)` becomes `createAudio(Ctor, screamSrc)` and decodes once inside
+  `unlock()`, on the START gesture. `playScream` plays the cached buffer or does nothing.
+- `src/main.js`: passes `SCREAM_SRC`.
+- `SPEC.md` section 4: the bundle size note now carries measured numbers, roughly 267 KB, of which
+  under 20 KB is the app. The estimate written before the image was replaced was low.
+- `tests/audio.test.js`: `stopMusic before the scream` waits for the decode before asserting the
+  ordering. Without that it would have passed vacuously, since a scare with no decoded buffer builds
+  no nodes to be ordered against.
+
+**Deleted**
+- `src/audio.js`: the four synthesized layers, `noiseBuffer`, `NOISE_SECONDS`, and the `noiseBuffers`
+  `WeakMap`. No oscillator, noise buffer, or envelope is left in the scare path.
+- `tests/audio.test.js`: `SCREAM_DURATION is exactly 4`, `buildScream schedules every layer`, `every
+  scheduled node stops by the duration`, `master gain is capped`, and the `masterGainValues` helper.
+  Each is replaced by a case above that asserts the same property of the sample path.
+
+**Notes**
+- The sound is decoded through Web Audio rather than played from an `<audio src="data:...">`, and
+  that is the whole design. An element would have needed `media-src data:` added to a policy that
+  currently exists to permit exactly nothing. Verified on the built bundle: the policy is still
+  `default-src 'none'; img-src data:; script-src ...; style-src ...; base-uri 'none'; form-action
+  'none'`, with no `media-src` in it.
+- Red run observed first: `ERR_MODULE_NOT_FOUND` on `decodeScream`, then the two bundle cases.
+- Two failures worth recording, both the same mistake made twice. `no module touches persistence` and
+  `bundle makes no network requests` failed because the new doc comments named the forbidden APIs in
+  prose, and comments ship in the bundle. Reworded. This is the third time a blunt source scan has
+  caught a comment rather than code; the scans stay blunt because that is what makes them reliable.
+- 169 cases pass, up from 165. `dist/index.html` is 119,687 bytes becomes 273,065.
+- Not yet verified by ear or on iOS Safari. Turn the volume down before the first listen.
+
 ## Task 16 - Six second scare - 2026-07-30 05:55 AM EDT
 
 The jumpscare image holds for 6 seconds rather than 10, then the app is back at the title screen
