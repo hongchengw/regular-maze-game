@@ -4,16 +4,22 @@ A reguler maze game. A prize awaits for you at the end to claim...
 
 ## Build
 
-Requires Node 18 or newer. There are no dependencies to install.
-
 ```
-node build/build.js
+npm run build
 ```
 
-This writes `dist/index.html`, a single self-contained file with the stylesheet and the jumpscare
-image inlined. Open it directly from the filesystem or serve it from any static host.
+There is no `npm install` step. The project has no dependencies, runtime or dev, so a fresh clone is
+ready to build. Node 18 or newer.
 
-To use your own image, replace `assets/jumpscare.png` and rebuild. The committed file is a
+That writes `dist/index.html`: one self-contained file with the stylesheet, every module, and the
+jumpscare image inlined as a data URI. Open it straight from the filesystem, or drop it on any static
+host. It makes no network requests of any kind.
+
+There is no `npm run dev` and no dev server, because there is nothing to serve. The dev loop is
+`npm run build` and then reload the file in your browser. Under the hood the script just runs
+`node build/build.js`, which you can call directly if you prefer.
+
+To use your own image, replace `assets/jumpscare.png` and build again. The committed one is a
 placeholder.
 
 ## Test

@@ -2,6 +2,29 @@
 
 Newest first. One entry per completed task.
 
+## Docs - Document the real build command - 2026-07-30 12:10 AM EDT
+
+**Changed**
+- `README.md` build section: leads with `npm run build`, the script that has existed in
+  `package.json` since task 01 but which the README never mentioned, showing the raw
+  `node build/build.js` instead. States that there is no `npm install` step, since the project has no
+  dependencies of either kind, and that there is no `npm run dev` or dev server because the output is
+  a static self-contained file with nothing to serve. The dev loop is build, then reload.
+
+**Added**
+- Nothing.
+
+**Deleted**
+- Nothing.
+
+**Notes**
+- Verified `npm run build` runs and reproduces `dist/index.html` byte for byte, so the build is
+  deterministic and the committed artifact was already current.
+- Left unfixed and worth a later look: the `test` script uses `node --test "tests/**/*.test.js"`,
+  and glob support in the test runner arrived well after Node 18, which is the version the README
+  claims. `node --test tests/` would work everywhere and would still skip the fixtures, none of which
+  are named `*.test.js`.
+
 ## Performance - Cut per-frame canvas cost and harden the mobile viewport - 2026-07-29 11:50 PM EDT
 
 Measured before and after in real Chrome, HARD level, 625 segments, rather than asserted.
