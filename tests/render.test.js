@@ -5,12 +5,18 @@ import { DIFFICULTY, LEVELS } from '../src/difficulty.js';
 import {
   FIT,
   MAX_DPR,
+  PULSE_PERIOD,
+  EXIT_COLOR,
+  EXIT_ALPHA_MIN,
+  EXIT_ALPHA_MAX,
   backingScale,
   fitTransform,
   toPixels,
   toCells,
   strokeWidthPx,
   fogRadiusPx,
+  exitPulse,
+  exitVisible,
 } from '../src/render.js';
 
 test('fitTransform centres a square maze', () => {
@@ -105,4 +111,66 @@ test('fogRadiusPx scales with the transform', () => {
 
   const [easy, medium, hard] = LEVELS.map((name) => fogRadiusPx(DIFFICULTY[name], scale));
   assert.ok(easy > medium && medium > hard, 'harder levels see less');
+});
+
+// --- The exit marker -----------------------------------------------------------------------------
+
+const alphaAt = (pulse) => EXIT_ALPHA_MIN + pulse * (EXIT_ALPHA_MAX - EXIT_ALPHA_MIN);
+
+test('exitPulse stays within gentle bounds', () => {
+  assert.ok(EXIT_ALPHA_MIN > 0, 'the marker never reaches full transparency, so it never blinks out');
+  assert.ok(EXIT_ALPHA_MAX <= 1);
+
+  // Several periods, sampled finely, so a pulse that overshoots anywhere is caught.
+  for (let i = 0; i < 1000; i += 1) {
+    const t = (i / 1000) * PULSE_PERIOD * 5;
+    const pulse = exitPulse(t);
+
+    assert.ok(pulse >= 0 && pulse <= 1, `exitPulse(${t}) returned ${pulse}, outside 0..1`);
+
+    const alpha = alphaAt(pulse);
+    assert.ok(
+      alpha >= EXIT_ALPHA_MIN - 1e-9 && alpha <= EXIT_ALPHA_MAX + 1e-9,
+      `alpha reached ${alpha}, outside the documented range`,
+    );
+  }
+});
+
+test('exitPulse is periodic', () => {
+  for (let t = 0; t < PULSE_PERIOD; t += 37) {
+    assert.ok(
+      Math.abs(exitPulse(t) - exitPulse(t + PULSE_PERIOD)) < 1e-9,
+      `the pulse drifted between t=${t} and one period later`,
+    );
+  }
+});
+
+test('exitPulse is continuous', () => {
+  // The anti-strobe guard: a fast or discontinuous pulse fails this outright.
+  for (let t = 0; t < PULSE_PERIOD * 2; t += 1) {
+    assert.ok(
+      Math.abs(exitPulse(t + 1) - exitPulse(t)) < 0.01,
+      `the pulse jumped inside one millisecond at t=${t}`,
+    );
+  }
+});
+
+test('the marker is hidden beyond the fog', () => {
+  // SPEC.md section 14: the exit is never visible from outside the fog radius.
+  const exit = { x: 9.5, y: 9.5 };
+
+  for (const name of LEVELS) {
+    const { fogRadius } = DIFFICULTY[name];
+
+    assert.equal(exitVisible({ x: 0.5, y: 0.5 }, exit, fogRadius), false, `${name} leaks the exit from the start cell`);
+    assert.equal(exitVisible({ x: exit.x - fogRadius - 0.01, y: exit.y }, exit, fogRadius), false, `${name} draws it a hair too early`);
+    assert.equal(exitVisible({ x: exit.x - fogRadius + 0.01, y: exit.y }, exit, fogRadius), true, `${name} hides it once inside the disc`);
+    assert.equal(exitVisible({ ...exit }, exit, fogRadius), true, `${name} hides it while standing on it`);
+  }
+});
+
+test('the marker colour is not wall white', () => {
+  for (const white of ['#fff', '#ffffff', 'white']) {
+    assert.notEqual(EXIT_COLOR.toLowerCase(), white, 'the marker must not be mistakable for a wall');
+  }
 });

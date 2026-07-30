@@ -2,6 +2,50 @@
 
 Newest first. One entry per completed task.
 
+## Task 14 - Pulsing exit marker - 2026-07-30 04:56 AM EDT
+
+The player can now tell they have found the end. The exit carries a slowly pulsing amber marker,
+drawn inside the fog clip so it is invisible until they are close to it. The original concern, that
+marking the exit leaks the goal through the fog, is answered by where the marker is drawn rather than
+by dropping it.
+
+**Added**
+- `src/render.js`: `PULSE_PERIOD` (1400 ms), `EXIT_COLOR` (`#ffb300`), `EXIT_ALPHA_MIN` and
+  `EXIT_ALPHA_MAX` (0.55 to 1), `EXIT_SCALE_MIN` and `EXIT_SCALE_MAX` (0.9 to 1.15 of the base
+  radius), `exitPulse(timeMs)`, and `exitVisible(pos, exit, fogRadiusCells)`. The base radius is
+  `exitRadius * scale`, so the marker is the size of the region that actually triggers the win.
+- `src/render.js`: the marker itself, drawn inside the existing fog clip and **before** the fog fade
+  is painted, so the fade dims it at the edge of the disc exactly as it dims the walls. Drawn after
+  the fade it would glow through the darkness.
+- `tests/render.test.js`: 5 cases. The pulse stays inside 0 to 1 over 1000 samples across five
+  periods and never leaves the documented alpha range, with the low end well clear of zero so the
+  marker cannot blink out; it repeats exactly one `PULSE_PERIOD` later; it moves by under 0.01 per
+  millisecond, which is the anti-strobe guard; `exitVisible` is false from the start cell and a hair
+  outside the disc and true just inside it and on the exit, at every level; and the colour is none of
+  `#fff`, `#ffffff`, or `white`.
+
+**Changed**
+- `src/render.js`: `draw(state)` becomes `draw(state, timeMs)`. The frame-skip condition gains a
+  third term, "and the marker is not currently visible", expressed with `exitVisible` so there is one
+  rule and one code path. Standing still away from the exit still skips frames; standing still next
+  to it no longer does, because that would freeze the pulse.
+- `src/main.js`: passes the `requestAnimationFrame` timestamp it already receives straight through to
+  `renderer.draw`.
+
+**Deleted**
+- The `src/render.js` comment asserting there is no exit marker.
+
+**Notes**
+- Red run observed first: `ERR_MODULE_NOT_FOUND` on the new imports, since none of the exports
+  existed.
+- `draw` is the untested DOM edge, as in task 06, so it was additionally driven through a throwaway
+  fake 2D context outside the suite: the marker is not drawn and the frame is skipped outright from
+  across the maze; it is drawn amber next to the exit; idle frames next to it are no longer skipped;
+  and the alpha and radius walk 0.775, 1.0, 0.775, 0.55 across one 1400 ms cycle.
+- `SPEC.md` section 13's no-animation and no-flash rules are about the jumpscare and are untouched.
+  The pulse is confined to `playing`, is slow, and is low-contrast.
+- 157 cases pass, up from 152. `node build/build.js` rebuilt `dist/index.html` at 49,016 bytes.
+
 ## Task 13 - Sequential levels - 2026-07-30 04:53 AM EDT
 
 A play session is now EASY, then MEDIUM, then HARD, then the jumpscare. **The difficulty select

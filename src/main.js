@@ -86,7 +86,7 @@ function frame(now) {
 
   state = step(state, dt, input.vector());
   showPhase(state);
-  if (state.phase === 'playing') renderer.draw(state);
+  if (state.phase === 'playing') renderer.draw(state, now);
 
   requestAnimationFrame(frame);
 }

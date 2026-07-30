@@ -23,6 +23,33 @@ const FOG_CLEAR = 0.75;
 /** How far the blob's glow reaches, as a multiple of the blob radius. */
 const BLOB_HALO = 2;
 
+/** Milliseconds for one full pulse of the exit marker. Slow on purpose: this is never a strobe. */
+export const PULSE_PERIOD = 1400;
+
+/** Amber. Deliberately not wall white, so the marker cannot be read as a piece of maze. */
+export const EXIT_COLOR = '#ffb300';
+
+/** Alpha the pulse drives between. The low end stays well clear of zero: the marker never blinks out. */
+export const EXIT_ALPHA_MIN = 0.55;
+export const EXIT_ALPHA_MAX = 1;
+
+/** Marker radius the pulse drives between, as a multiple of the base radius. Both bounds stay narrow. */
+export const EXIT_SCALE_MIN = 0.9;
+export const EXIT_SCALE_MAX = 1.15;
+
+/** The pulse itself: 0 to 1 and back, once per `PULSE_PERIOD`, continuous everywhere. */
+export function exitPulse(timeMs) {
+  return (Math.sin((timeMs / PULSE_PERIOD) * Math.PI * 2) + 1) / 2;
+}
+
+/**
+ * True when the exit lies inside the fog disc. The marker is drawn only then, which is what keeps
+ * the goal invisible from across the maze, and it is also what tells `draw` it cannot idle.
+ */
+export function exitVisible(pos, exit, fogRadiusCells) {
+  return Math.hypot(pos.x - exit.x, pos.y - exit.y) < fogRadiusCells;
+}
+
 /**
  * Fit a `cols` x `rows` maze into a viewport. Aspect independent: rotating the device yields the
  * same scale with the offsets swapped.
@@ -118,7 +145,7 @@ export function createRenderer(canvas) {
     return blobHalo;
   }
 
-  function draw(state) {
+  function draw(state, timeMs) {
     if (state.phase !== 'playing') {
       ctx.fillStyle = '#000';
       ctx.fillRect(0, 0, viewW, viewH);
@@ -127,9 +154,19 @@ export function createRenderer(canvas) {
     }
 
     const { level, pos, segments } = state;
+    const markerShowing = exitVisible(pos, state.exit, level.fogRadius);
 
-    // Nothing moved and nothing resized, so the last frame is still correct.
-    if (pos.x === lastX && pos.y === lastY && viewW === lastW && viewH === lastH) return;
+    // Nothing moved, nothing resized, and the marker is not on screen, so the last frame is still
+    // correct. The marker is the one exception: idling on it would freeze its pulse.
+    if (
+      pos.x === lastX &&
+      pos.y === lastY &&
+      viewW === lastW &&
+      viewH === lastH &&
+      !markerShowing
+    ) {
+      return;
+    }
     lastX = pos.x;
     lastY = pos.y;
     lastW = viewW;
@@ -160,6 +197,28 @@ export function createRenderer(canvas) {
       ctx.lineTo(t.offsetX + seg.x2 * t.scale, t.offsetY + seg.y2 * t.scale);
     }
     ctx.stroke();
+
+    // The exit marker, drawn inside the fog clip and before the fade, so the fade dims it at the
+    // edge of the disc exactly as it dims the walls. Drawn after the fade it would glow through the
+    // darkness and give the goal away from across the maze.
+    if (markerShowing) {
+      const pulse = exitPulse(timeMs);
+      const base = level.exitRadius * t.scale;
+
+      ctx.globalAlpha = EXIT_ALPHA_MIN + pulse * (EXIT_ALPHA_MAX - EXIT_ALPHA_MIN);
+      ctx.fillStyle = EXIT_COLOR;
+      ctx.beginPath();
+      ctx.arc(
+        t.offsetX + state.exit.x * t.scale,
+        t.offsetY + state.exit.y * t.scale,
+        base * (EXIT_SCALE_MIN + pulse * (EXIT_SCALE_MAX - EXIT_SCALE_MIN)),
+        0,
+        Math.PI * 2,
+      );
+      ctx.fill();
+    }
+
+    // `restore` also puts `globalAlpha` back, so nothing after this inherits the pulse.
     ctx.restore();
 
     // Everything from here is drawn around the origin, with the canvas translated to the blob, so
@@ -173,8 +232,8 @@ export function createRenderer(canvas) {
     ctx.arc(0, 0, fog, 0, Math.PI * 2);
     ctx.fill();
 
-    // The blob. Nothing else is drawn: no HUD, no timer, no hit counter, and no exit marker, since
-    // marking the exit would leak the goal through the fog.
+    // The blob. Nothing else is drawn: no HUD, no timer, and no hit counter. The exit marker above
+    // is the only other thing on screen, and only from inside the fog.
     const blobRadius = level.blobRadius * t.scale;
     ctx.fillStyle = haloFor(blobRadius);
     ctx.beginPath();
