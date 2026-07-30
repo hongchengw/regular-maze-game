@@ -2,6 +2,30 @@
 
 Newest first. One entry per completed task.
 
+## Assets - Ship the replacement jumpscare image - 2026-07-30 05:53 AM EDT
+
+The user replaced `assets/jumpscare.jpg` with a different picture. Per `SPEC.md` section 4 the entire
+swap procedure is "replace the file and rebuild", so this entry is the whole change.
+
+**Added**
+- Nothing.
+
+**Changed**
+- `assets/jumpscare.jpg`: 4,432 bytes becomes 54,215 bytes, and the image is 1080x608, landscape.
+- `dist/index.html`: 53,290 bytes becomes 119,666 bytes, all of it the larger base64 payload.
+
+**Deleted**
+- Nothing.
+
+**Notes**
+- No code changed. The media type is still derived from the extension, so a jpeg swapped for a jpeg
+  needed nothing at all, and `tests/build.test.js` still asserts the inlined bytes equal the file on
+  disk.
+- The new image being 1080x608 landscape is what makes `tasks/task-18-jumpscare-fill.md` worth doing:
+  under the current `object-fit: cover`, a landscape image on a portrait phone is cropped to a narrow
+  vertical strip of itself.
+- 165 cases pass, unchanged.
+
 ## Docs - Specify the second round of QA changes and add their task briefs - 2026-07-30 05:49 AM EDT
 
 Documentation only. **No source, test, or build file was touched and nothing was implemented.** A
