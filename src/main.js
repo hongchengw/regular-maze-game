@@ -4,14 +4,15 @@
 // There is no pause, no debug key, and no level skip. Anything that lets a tester reach the exit
 // without playing is also something a victim can stumble into.
 
-import { createGame, pressStart, startLevel, step } from './game.js';
+import { LEVELS } from './difficulty.js';
+import { createGame, pressStart, step } from './game.js';
 import { createRenderer } from './render.js';
 import { createInput } from './input.js';
 import { createAudio } from './audio.js';
 import { createJumpscare } from './jumpscare.js';
 
-const screensEl = document.getElementById('screens');
 const startButton = document.getElementById('start');
+const levelupEl = document.getElementById('levelup');
 const canvasEl = document.getElementById('canvas');
 const dpadEl = document.getElementById('dpad');
 const overlayEl = document.getElementById('jumpscare');
@@ -31,10 +32,17 @@ function freshSeed() {
 }
 
 /** Screen visibility is one attribute, and the overlay is a function of the phase and nothing else. */
-function showPhase(phase) {
+function showPhase(current) {
+  const { phase } = current;
   if (phase === phaseShown) return;
 
   document.body.dataset.phase = phase;
+
+  // The level the player is about to start, counted from one for the player rather than from zero.
+  if (phase === 'levelup') {
+    levelupEl.textContent = `LEVEL ${current.levelIndex + 2} OF ${LEVELS.length}`;
+  }
+
   if (phase === 'scare') {
     jumpscare.show();
   } else {
@@ -49,17 +57,11 @@ function showPhase(phase) {
 }
 
 // The audio context has to be built inside the click handler: browsers block audio started outside
-// a user gesture, and a silent scare would defeat the whole app.
+// a user gesture, and a silent scare would defeat the whole app. START is the only control the app
+// has: it draws one seed and begins the first level, and every later level derives its own.
 startButton.addEventListener('click', () => {
   audio.unlock();
-  state = pressStart(state);
-});
-
-screensEl.addEventListener('click', (event) => {
-  // `closest` rather than the raw target, so a click landing on anything inside a level button
-  // still counts as a click on that button.
-  const button = event.target.closest('[data-level]');
-  if (button) state = startLevel(state, button.dataset.level, freshSeed());
+  state = pressStart(state, freshSeed());
 });
 
 // A mobile browser fires resize continuously while its address bar slides, and each one reallocates
@@ -83,7 +85,7 @@ function frame(now) {
   lastFrame = now;
 
   state = step(state, dt, input.vector());
-  showPhase(state.phase);
+  showPhase(state);
   if (state.phase === 'playing') renderer.draw(state);
 
   requestAnimationFrame(frame);
@@ -91,5 +93,5 @@ function frame(now) {
 
 input.attach();
 renderer.resize();
-showPhase(state.phase);
+showPhase(state);
 requestAnimationFrame(frame);

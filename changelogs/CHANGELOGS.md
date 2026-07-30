@@ -2,6 +2,66 @@
 
 Newest first. One entry per completed task.
 
+## Task 13 - Sequential levels - 2026-07-30 04:53 AM EDT
+
+A play session is now EASY, then MEDIUM, then HARD, then the jumpscare. **The difficulty select
+screen was deleted**: the levels are played in order, every time, so there is nothing to choose, and
+naming them on a menu also gave away that the game is about the fog. Each completed level hands over
+through a one-second `LEVEL n OF 3` beat, so the player knows they progressed rather than glitched.
+
+**Added**
+- `src/game.js`: `LEVELUP_DURATION = 1`, a `levelup` branch in `step`, and `levelIndex` and
+  `levelupElapsed` on the state. `pressStart(state, seed)` now goes straight into `LEVELS[0]`.
+- `src/game.js`: `deriveSeed`, a private pure derivation, `Math.floor(mulberry32(seed)() * 2 ** 32)`.
+  Only the first level's seed comes from the caller. This is what keeps the module free of the clock
+  and of any global random source, and it is what makes a whole three-level run replayable from one
+  number.
+- `src/index.html` and `src/styles.css`: the `levelup` screen, one centred line of text on black.
+- `tests/game.test.js`: 10 cases, plus the `finish`, `handover`, and `segmentsPerLevel` fixtures.
+  START goes straight to `playing` on EASY with no `select` phase left anywhere in the module; EASY's
+  exit yields `levelup` and never `scare`; the beat holds at `LEVELUP_DURATION - MAX_DT` and is gone
+  at `LEVELUP_DURATION`, asserted from both sides; the handover places the blob in the new maze's
+  start cell with a clean counter; only HARD fires the scare; `levelIndex` matches
+  `LEVELS.indexOf(levelName)` at every point; two runs from one seed are deep-equal across all three
+  levels; the three mazes differ from each other and the second differs from what the starting seed
+  alone would have carved; and input during `levelup` never moves the blob.
+- `tests/integration.test.js`: `a full run reaches the scare`, one automated run walking all three
+  mazes along their own solutions, asserting the order, zero wall contact per level, a `levelup`
+  between each pair, and `scare` only at the end.
+
+**Changed**
+- `src/main.js`: START calls `audio.unlock()` then `pressStart(state, freshSeed())`. `showPhase` takes
+  the state rather than the phase, since the `LEVEL n OF 3` text is written from `state.levelIndex`
+  when the phase becomes `levelup`.
+- `src/styles.css`: the `select` rules become `levelup` rules, plus a `.levelup` text rule. The
+  D-pad's `playing`-only rule already hides it during `levelup`; confirmed rather than assumed.
+- `tests/game.test.js`: `select to playing` becomes `startLevel carves the named level`, since
+  `startLevel` is still exported and is what makes one level testable in isolation. `exit within
+  radius wins` becomes `exit within radius ends the level`. The `input ignored outside playing` list
+  swaps `select` for `levelup`. The source scan moved to a module-level constant and now also
+  forbids a global random source.
+- `tests/integration.test.js`: the three independent per-level runs become the single full run.
+  `the full loop returns to title` and `a second playthrough works` now run through all three levels.
+- `tests/jumpscare.test.js`: its fixture calls `startLevel` directly rather than through
+  `pressStart`, which no longer takes a state alone.
+
+**Deleted**
+- `src/index.html`: the `select` section and its three level buttons.
+- `src/main.js`: the `[data-level]` click handler and the `screensEl` lookup it needed.
+- `tests/game.test.js`: `title to select`.
+- `tests/integration.test.js`: `a solved maze reaches the scare`, replaced by the full run.
+
+**Notes**
+- Red run observed first: `tests/game.test.js` would not even load, since `LEVELUP_DURATION` did not
+  exist, and the three integration cases failed on `pressStart` still yielding `select`.
+- One failure worth recording: the source scan for the clock initially failed on the new
+  `deriveSeed` doc comment, which named the two forbidden globals in prose. The comment was reworded.
+  The scan is deliberately blunt and this is the second time prose has tripped it.
+- The bundle test that pins one symbol per `src/*.js` module still passes: no module was added or
+  dropped, and `src/main.js` now imports `LEVELS` from the already-bundled `difficulty.js`.
+- 152 cases pass, up from 144. `node build/build.js` rebuilt `dist/index.html` at 46,805 bytes, with
+  no `data-level` left in it and the three screens now `title`, `levelup`, and `playing`.
+
 ## Task 12 - Wider fog radius - 2026-07-30 04:47 AM EDT
 
 A tuning change and nothing else: the player sees slightly more of the maze at every difficulty. No

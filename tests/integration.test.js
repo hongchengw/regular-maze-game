@@ -47,20 +47,51 @@ function playThrough(initial, maxFrames = 100000) {
   return { state, frames };
 }
 
-test('a solved maze reaches the scare', () => {
-  for (const name of LEVELS) {
-    const start = startLevel(pressStart(createGame()), name, 2026);
-    const { state } = playThrough(start);
-
-    assert.equal(state.phase, 'scare', `${name} was not traversable along its own solution`);
-    assert.equal(state.hits, 0, `${name} clipped a wall while centred in the corridor`);
+/** Sit through the level-up beat, if that is where the state is. */
+function holdLevelup(state) {
+  let current = state;
+  for (let i = 0; i < 1000 && current.phase === 'levelup'; i += 1) {
+    current = step(current, FRAME, { dx: 0, dy: 0 });
   }
+  return current;
+}
+
+/** Walk all three mazes along their own solutions, from one starting seed. */
+function fullRun(seed) {
+  let state = pressStart(createGame(), seed);
+  const names = [];
+
+  for (let i = 0; i < LEVELS.length; i += 1) {
+    names.push(state.levelName);
+    ({ state } = playThrough(state));
+    state = holdLevelup(state);
+  }
+
+  return { state, names };
+}
+
+test('a full run reaches the scare', () => {
+  let state = pressStart(createGame(), 2026);
+  const names = [];
+
+  for (let i = 0; i < LEVELS.length; i += 1) {
+    names.push(state.levelName);
+    ({ state } = playThrough(state));
+
+    assert.equal(state.hits, 0, `${names[i]} clipped a wall while centred in the corridor`);
+    if (i + 1 < LEVELS.length) {
+      assert.equal(state.phase, 'levelup', `${names[i]} was not traversable along its own solution`);
+      state = holdLevelup(state);
+    }
+  }
+
+  assert.deepEqual(names, [...LEVELS], 'the levels are played in order, every time');
+  assert.equal(state.phase, 'scare', 'and only the exit of HARD ends the run');
 });
 
 test('the full loop returns to title', () => {
-  const start = startLevel(pressStart(createGame()), 'EASY', 2026);
-  let { state } = playThrough(start);
-  assert.equal(state.phase, 'scare', 'fixture check: the playthrough should reach the scare');
+  let { state } = fullRun(2026);
+  assert.equal(state.phase, 'scare', 'fixture check: the run should reach the scare');
 
   const frames = Math.ceil(SCARE_DURATION / FRAME) + 1;
   for (let i = 0; i < frames; i += 1) state = step(state, FRAME, { dx: 0, dy: 0 });
@@ -69,20 +100,20 @@ test('the full loop returns to title', () => {
 });
 
 test('a second playthrough works', () => {
-  const first = startLevel(pressStart(createGame()), 'EASY', 2026);
-  let { state } = playThrough(first);
+  let { state } = fullRun(2026);
 
   const frames = Math.ceil(SCARE_DURATION / FRAME) + 1;
   for (let i = 0; i < frames; i += 1) state = step(state, FRAME, { dx: 0, dy: 0 });
 
-  const second = startLevel(pressStart(state), 'MEDIUM', 7);
+  const second = pressStart(state, 7);
   assert.equal(second.phase, 'playing', 'no state corruption survives a full loop');
+  assert.equal(second.levelName, 'EASY', 'and the next run starts from the first level again');
   assert.equal(second.hits, 0);
   assert.deepEqual(second.pos, { x: 0.5, y: 0.5 });
 });
 
 test('wall contact does not change the layout mid-run', () => {
-  let state = startLevel(pressStart(createGame()), 'EASY', 2026);
+  let state = startLevel(createGame(), 'EASY', 2026);
   const layout = state.segments;
 
   // Drive straight up into the solid outer border and keep pressing.

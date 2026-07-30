@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { createGame, pressStart, startLevel, step, MAX_DT, SCARE_DURATION } from '../src/game.js';
+import { createGame, startLevel, step, MAX_DT, SCARE_DURATION } from '../src/game.js';
 import { SCREAM_DURATION } from '../src/audio.js';
 import { createJumpscare } from '../src/jumpscare.js';
 
@@ -14,7 +14,7 @@ const read = (file) => fs.readFileSync(path.join(src, file), 'utf8');
 
 /** A scare-phase state with `scareElapsed` seconds already on the clock. */
 function scaring(scareElapsed = 0) {
-  const playing = startLevel(pressStart(createGame()), 'EASY', 1);
+  const playing = startLevel(createGame(), 'EASY', 1);
   return { ...playing, phase: 'scare', scareElapsed };
 }
 

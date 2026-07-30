@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; script-src 'sha256-pv7gEiJbkv65QpRcQBoe+NNi+5RNqBxI/RctrAn8DBI='; style-src 'sha256-q1bazI/lmhOKPhoYgeQXbE0bUH1E7xt6DsZomNJbuKo='; base-uri 'none'; form-action 'none'" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; script-src 'sha256-KrO/9hKePxMCsPbAc2lGGCy2xrQUlwFfhVaZneo3Jx8='; style-src 'sha256-OYi+pCZqPscJol7VbGF+zVZxrIw4+OH/bRWTfn0GQj8='; base-uri 'none'; form-action 'none'" />
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
@@ -38,13 +38,13 @@ body {
 }
 
 body[data-phase='title'] [data-screen='title'],
-body[data-phase='select'] [data-screen='select'],
+body[data-phase='levelup'] [data-screen='levelup'],
 body[data-phase='playing'] [data-screen='playing'] {
   display: flex;
 }
 
 [data-screen='title'],
-[data-screen='select'] {
+[data-screen='levelup'] {
   position: fixed;
   inset: 0;
   height: 100dvh;
@@ -58,8 +58,16 @@ body[data-phase='playing'] [data-screen='playing'] {
   color: #fff;
 }
 
-[data-screen='select'] {
+[data-screen='levelup'] {
   justify-content: center;
+}
+
+/* The level-up beat: one line of text on black, matched to the buttons so it reads as the same
+   app rather than as an interstitial. It is a beat, not a screen the player acts on. */
+.levelup {
+  margin: 0;
+  font-size: 16px;
+  letter-spacing: 0.18em;
 }
 
 /* The warning is the user's only forewarning. It reads before the button, so it comes first in the
@@ -178,10 +186,8 @@ body[data-phase='scare'] .dpad {
         <p class="warning">WARNING: Not suitable for those sensitive to sudden sounds or visuals.</p>
         <button id="start">START</button>
       </section>
-      <section data-screen="select">
-        <button data-level="EASY">EASY</button>
-        <button data-level="MEDIUM">MEDIUM</button>
-        <button data-level="HARD">HARD</button>
+      <section data-screen="levelup">
+        <p class="levelup" id="levelup"></p>
       </section>
       <section data-screen="playing">
         <canvas id="canvas"></canvas>
@@ -199,6 +205,51 @@ body[data-phase='scare'] .dpad {
 
     <script type="module">
 const JUMPSCARE_SRC = "data:image/jpeg;base64,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";
+// The one tuning table. Every tunable number in the game lives here and nowhere else.
+//
+// Harder means a larger grid, a fatter blob relative to the corridor, and a smaller fog radius, so
+// more of the maze is navigated blind. Because the renderer fits the whole maze to the viewport, a
+// larger grid also means fewer pixels per cell, which tightens HARD corridors visually without
+// touching the cell-unit geometry.
+
+const DIFFICULTY = Object.freeze({
+  EASY: Object.freeze({
+    cols: 10,
+    rows: 10,
+    blobRadius: 0.16,
+    wallHalfThickness: 0.04,
+    fogRadius: 2.4,
+    speed: 3.2,
+    exitRadius: 0.3,
+  }),
+  MEDIUM: Object.freeze({
+    cols: 16,
+    rows: 16,
+    blobRadius: 0.18,
+    wallHalfThickness: 0.035,
+    fogRadius: 1.8,
+    speed: 3.4,
+    exitRadius: 0.28,
+  }),
+  HARD: Object.freeze({
+    cols: 24,
+    rows: 24,
+    blobRadius: 0.22,
+    wallHalfThickness: 0.03,
+    fogRadius: 1.3,
+    speed: 3.6,
+    exitRadius: 0.25,
+  }),
+});
+
+/** Display order for the select screen, so the UI cannot drift from the table. */
+const LEVELS = Object.freeze(['EASY', 'MEDIUM', 'HARD']);
+
+/** Slack between the blob's edge and a wall when the blob is centred in a corridor. */
+function clearance(level) {
+  return 0.5 - (level.blobRadius + level.wallHalfThickness);
+}
+
 // Seeded pseudo-random float stream. Kept exactly as mulberry32 is published so the same seed
 // yields the same maze across Node versions and browsers.
 
@@ -420,51 +471,6 @@ function sweep(from, to, radius, segments, halfThickness) {
   return { hit: false, pos: safe, steps };
 }
 
-// The one tuning table. Every tunable number in the game lives here and nowhere else.
-//
-// Harder means a larger grid, a fatter blob relative to the corridor, and a smaller fog radius, so
-// more of the maze is navigated blind. Because the renderer fits the whole maze to the viewport, a
-// larger grid also means fewer pixels per cell, which tightens HARD corridors visually without
-// touching the cell-unit geometry.
-
-const DIFFICULTY = Object.freeze({
-  EASY: Object.freeze({
-    cols: 10,
-    rows: 10,
-    blobRadius: 0.16,
-    wallHalfThickness: 0.04,
-    fogRadius: 2.4,
-    speed: 3.2,
-    exitRadius: 0.3,
-  }),
-  MEDIUM: Object.freeze({
-    cols: 16,
-    rows: 16,
-    blobRadius: 0.18,
-    wallHalfThickness: 0.035,
-    fogRadius: 1.8,
-    speed: 3.4,
-    exitRadius: 0.28,
-  }),
-  HARD: Object.freeze({
-    cols: 24,
-    rows: 24,
-    blobRadius: 0.22,
-    wallHalfThickness: 0.03,
-    fogRadius: 1.3,
-    speed: 3.6,
-    exitRadius: 0.25,
-  }),
-});
-
-/** Display order for the select screen, so the UI cannot drift from the table. */
-const LEVELS = Object.freeze(['EASY', 'MEDIUM', 'HARD']);
-
-/** Slack between the blob's edge and a wall when the blob is centred in a corridor. */
-function clearance(level) {
-  return 0.5 - (level.blobRadius + level.wallHalfThickness);
-}
-
 // The whole game as pure functions over a plain state object: phases, movement, wall contact, and
 // exit detection.
 //
@@ -479,6 +485,9 @@ function clearance(level) {
 /** Seconds. Caps a frame delta so a background tab regaining focus cannot jump the maze. */
 const MAX_DT = 0.05;
 
+/** Seconds the `LEVEL n OF 3` beat holds between two levels. */
+const LEVELUP_DURATION = 1;
+
 /** Seconds the jumpscare image holds before the app returns to the title screen. */
 const SCARE_DURATION = 10;
 
@@ -488,6 +497,7 @@ function createGame() {
     phase: 'title',
     levelName: null,
     level: null,
+    levelIndex: 0,
     seed: null,
     maze: null,
     segments: null,
@@ -495,16 +505,20 @@ function createGame() {
     start: null,
     exit: null,
     hits: 0,
+    levelupElapsed: 0,
     scareElapsed: 0,
   };
 }
 
-/** Title to select. */
-function pressStart(state) {
-  return { ...state, phase: 'select' };
+/**
+ * Title straight into the first level. There is nothing to choose: the three levels are played in
+ * `LEVELS` order, every time.
+ */
+function pressStart(state, seed) {
+  return startLevel(state, LEVELS[0], seed);
 }
 
-/** Select to playing: carve a maze from `seed` and place the blob in the centre of cell (0,0). */
+/** Playing: carve a maze from `seed` and place the blob in the centre of cell (0,0). */
 function startLevel(state, levelName, seed) {
   // Own properties only. `__proto__`, `constructor`, and friends all return something truthy from a
   // plain object, so a bare lookup would pass this guard and fail later with a confusing error.
@@ -521,6 +535,7 @@ function startLevel(state, levelName, seed) {
     phase: 'playing',
     levelName,
     level,
+    levelIndex: LEVELS.indexOf(levelName),
     seed,
     maze,
     segments: toSegments(maze),
@@ -528,8 +543,18 @@ function startLevel(state, levelName, seed) {
     start,
     exit: { x: level.cols - 0.5, y: level.rows - 0.5 },
     hits: 0,
+    levelupElapsed: 0,
     scareElapsed: 0,
   };
+}
+
+/**
+ * The next level's seed, derived from the current one rather than drawn from the clock or a global
+ * random source. Keeping the derivation pure is what leaves this module with no dependency on either
+ * of those, and it is what lets a whole three-level run be replayed from a single starting seed.
+ */
+function deriveSeed(seed) {
+  return Math.floor(mulberry32(seed)() * 2 ** 32);
 }
 
 /** Normalize an input vector longer than 1, so the blob's speed is equal in all eight directions. */
@@ -559,15 +584,16 @@ function stepPlaying(state, dt, input) {
   const slidY = sweep(slidX.pos, { x: slidX.pos.x, y: slidX.pos.y + vy }, r, segments, halfThickness);
 
   const moved = slidY.pos;
+  const hits = state.hits + (slidX.hit || slidY.hit ? 1 : 0);
   const reached = Math.hypot(moved.x - state.exit.x, moved.y - state.exit.y) < level.exitRadius;
 
-  return {
-    ...state,
-    pos: moved,
-    hits: state.hits + (slidX.hit || slidY.hit ? 1 : 0),
-    phase: reached ? 'scare' : state.phase,
-    scareElapsed: 0,
-  };
+  if (!reached) return { ...state, pos: moved, hits };
+
+  // The level ends the instant the exit is touched. Only the last level's exit fires the scare;
+  // every earlier one hands over through the level-up beat.
+  return state.levelIndex + 1 < LEVELS.length
+    ? { ...state, pos: moved, hits, phase: 'levelup', levelupElapsed: 0 }
+    : { ...state, pos: moved, hits, phase: 'scare', scareElapsed: 0 };
 }
 
 /**
@@ -578,6 +604,12 @@ function step(state, dt, input) {
   const clamped = Math.min(dt, MAX_DT);
 
   if (state.phase === 'playing') return stepPlaying(state, clamped, input);
+
+  if (state.phase === 'levelup') {
+    const levelupElapsed = state.levelupElapsed + clamped;
+    if (levelupElapsed < LEVELUP_DURATION) return { ...state, levelupElapsed };
+    return startLevel(state, LEVELS[state.levelIndex + 1], deriveSeed(state.seed));
+  }
 
   if (state.phase === 'scare') {
     const scareElapsed = state.scareElapsed + clamped;
@@ -1126,8 +1158,9 @@ function createJumpscare(overlayEl, imgEl, audio, imageSrc) {
 
 
 
-const screensEl = document.getElementById('screens');
+
 const startButton = document.getElementById('start');
+const levelupEl = document.getElementById('levelup');
 const canvasEl = document.getElementById('canvas');
 const dpadEl = document.getElementById('dpad');
 const overlayEl = document.getElementById('jumpscare');
@@ -1147,10 +1180,17 @@ function freshSeed() {
 }
 
 /** Screen visibility is one attribute, and the overlay is a function of the phase and nothing else. */
-function showPhase(phase) {
+function showPhase(current) {
+  const { phase } = current;
   if (phase === phaseShown) return;
 
   document.body.dataset.phase = phase;
+
+  // The level the player is about to start, counted from one for the player rather than from zero.
+  if (phase === 'levelup') {
+    levelupEl.textContent = `LEVEL ${current.levelIndex + 2} OF ${LEVELS.length}`;
+  }
+
   if (phase === 'scare') {
     jumpscare.show();
   } else {
@@ -1165,17 +1205,11 @@ function showPhase(phase) {
 }
 
 // The audio context has to be built inside the click handler: browsers block audio started outside
-// a user gesture, and a silent scare would defeat the whole app.
+// a user gesture, and a silent scare would defeat the whole app. START is the only control the app
+// has: it draws one seed and begins the first level, and every later level derives its own.
 startButton.addEventListener('click', () => {
   audio.unlock();
-  state = pressStart(state);
-});
-
-screensEl.addEventListener('click', (event) => {
-  // `closest` rather than the raw target, so a click landing on anything inside a level button
-  // still counts as a click on that button.
-  const button = event.target.closest('[data-level]');
-  if (button) state = startLevel(state, button.dataset.level, freshSeed());
+  state = pressStart(state, freshSeed());
 });
 
 // A mobile browser fires resize continuously while its address bar slides, and each one reallocates
@@ -1199,7 +1233,7 @@ function frame(now) {
   lastFrame = now;
 
   state = step(state, dt, input.vector());
-  showPhase(state.phase);
+  showPhase(state);
   if (state.phase === 'playing') renderer.draw(state);
 
   requestAnimationFrame(frame);
@@ -1207,7 +1241,7 @@ function frame(now) {
 
 input.attach();
 renderer.resize();
-showPhase(state.phase);
+showPhase(state);
 requestAnimationFrame(frame);
     </script>
   </body>

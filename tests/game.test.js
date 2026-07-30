@@ -1,18 +1,30 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
-import { DIFFICULTY } from '../src/difficulty.js';
+import { DIFFICULTY, LEVELS } from '../src/difficulty.js';
 import { hitsWall } from '../src/collision.js';
-import { createGame, pressStart, startLevel, step, MAX_DT, SCARE_DURATION } from '../src/game.js';
+import {
+  createGame,
+  pressStart,
+  startLevel,
+  step,
+  MAX_DT,
+  LEVELUP_DURATION,
+  SCARE_DURATION,
+} from '../src/game.js';
 
 const NO_INPUT = { dx: 0, dy: 0 };
 const RIGHT = { dx: 1, dy: 0 };
 const LEFT = { dx: -1, dy: 0 };
 const DOWN_LEFT = { dx: -1, dy: 1 };
 
+const gameSource = fs.readFileSync(fileURLToPath(new URL('../src/game.js', import.meta.url)), 'utf8');
+
 /** A playing state on `levelName` with the walls removed, to isolate movement from the maze. */
 function openField(levelName = 'EASY', seed = 1) {
-  return { ...startLevel(pressStart(createGame()), levelName, seed), segments: [] };
+  return { ...startLevel(createGame(), levelName, seed), segments: [] };
 }
 
 /**
@@ -21,7 +33,7 @@ function openField(levelName = 'EASY', seed = 1) {
  * a seed happened to carve.
  */
 function walledField(levelName = 'EASY') {
-  const state = startLevel(pressStart(createGame()), levelName, 1);
+  const state = startLevel(createGame(), levelName, 1);
   return { ...state, segments: [{ x1: 0, y1: -1, x2: 0, y2: 99 }] };
 }
 
@@ -42,6 +54,30 @@ function advance(state, total, input = NO_INPUT) {
 
 const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 
+/** Drop the blob on the exit and step, so the current level ends on that frame. */
+function finish(state) {
+  return step({ ...state, pos: { ...state.exit } }, MAX_DT, NO_INPUT);
+}
+
+/** Hold through the level-up beat, returning the state on the other side of it. */
+function handover(state) {
+  let current = state;
+  for (let i = 0; i < 200 && current.phase === 'levelup'; i += 1) current = step(current, MAX_DT, NO_INPUT);
+  return current;
+}
+
+/** Every level's `segments`, in play order, from one starting seed. */
+function segmentsPerLevel(seed) {
+  const perLevel = [];
+  let state = pressStart(createGame(), seed);
+
+  for (let i = 0; i < LEVELS.length; i += 1) {
+    perLevel.push(state.segments);
+    state = handover(finish(state));
+  }
+  return perLevel;
+}
+
 // --- Phase transitions -------------------------------------------------------------------------
 
 test('starts at title', () => {
@@ -52,12 +88,17 @@ test('starts at title', () => {
   assert.equal(state.hits, 0);
 });
 
-test('title to select', () => {
-  assert.equal(pressStart(createGame()).phase, 'select');
+test('START begins EASY', () => {
+  const state = pressStart(createGame(), 1);
+
+  assert.equal(state.phase, 'playing', 'there is no screen between the title and the first maze');
+  assert.equal(state.levelName, 'EASY');
+  assert.equal(state.levelIndex, 0);
+  assert.ok(!/'select'/.test(gameSource), 'no select phase exists anywhere in the machine');
 });
 
-test('select to playing', () => {
-  const state = startLevel(pressStart(createGame()), 'MEDIUM', 7);
+test('startLevel carves the named level', () => {
+  const state = startLevel(createGame(), 'MEDIUM', 7);
 
   assert.equal(state.phase, 'playing');
   assert.equal(state.levelName, 'MEDIUM');
@@ -68,7 +109,83 @@ test('select to playing', () => {
 });
 
 test('invalid level rejected', () => {
-  assert.throws(() => startLevel(pressStart(createGame()), 'NIGHTMARE', 1), /NIGHTMARE/);
+  assert.throws(() => startLevel(createGame(), 'NIGHTMARE', 1), /NIGHTMARE/);
+});
+
+test('finishing EASY goes to levelup, not the scare', () => {
+  const done = finish(pressStart(createGame(), 3));
+
+  assert.equal(done.phase, 'levelup', 'a level with one after it hands over rather than ending the run');
+  assert.equal(done.levelupElapsed, 0);
+});
+
+test('levelup advances to the next level', () => {
+  const next = handover(finish(pressStart(createGame(), 3)));
+
+  assert.equal(next.phase, 'playing');
+  assert.equal(next.levelName, 'MEDIUM');
+  assert.deepEqual(next.pos, { x: 0.5, y: 0.5 }, 'the blob is placed in the new maze\'s start cell');
+  assert.deepEqual(next.pos, next.start);
+  assert.equal(next.hits, 0, 'the new level starts with a clean counter');
+});
+
+test('levelup holds for its full duration', () => {
+  const levelup = finish(pressStart(createGame(), 3));
+
+  const held = step({ ...levelup, levelupElapsed: LEVELUP_DURATION - MAX_DT * 2 }, MAX_DT, NO_INPUT);
+  assert.equal(held.phase, 'levelup', `still holding at ${LEVELUP_DURATION - MAX_DT}s`);
+
+  assert.equal(step(held, MAX_DT, NO_INPUT).phase, 'playing', 'and gone at exactly LEVELUP_DURATION');
+});
+
+test('only HARD fires the scare', () => {
+  let state = pressStart(createGame(), 11);
+
+  assert.equal(finish(state).phase, 'levelup', 'EASY hands over');
+  state = handover(finish(state));
+  assert.equal(finish(state).phase, 'levelup', 'MEDIUM hands over');
+  state = handover(finish(state));
+
+  assert.equal(state.levelName, 'HARD');
+  assert.equal(finish(state).phase, 'scare', 'only the last level ends the run');
+});
+
+test('levelIndex tracks the order', () => {
+  let state = pressStart(createGame(), 11);
+  const seen = [];
+
+  for (let i = 0; i < LEVELS.length; i += 1) {
+    seen.push([state.levelIndex, state.levelName]);
+    assert.equal(state.levelIndex, LEVELS.indexOf(state.levelName), 'the index and the name cannot drift');
+    state = handover(finish(state));
+  }
+
+  assert.deepEqual(seen, [[0, 'EASY'], [1, 'MEDIUM'], [2, 'HARD']]);
+});
+
+test('a run is reproducible from one seed', () => {
+  // This is what the derived seed buys, and it is what makes an automated playthrough assertable.
+  assert.deepEqual(segmentsPerLevel(2026), segmentsPerLevel(2026));
+});
+
+test('each level gets a different maze', () => {
+  const [easy, medium, hard] = segmentsPerLevel(2026);
+
+  assert.notDeepEqual(easy, medium);
+  assert.notDeepEqual(medium, hard);
+  assert.notDeepEqual(easy, hard);
+  assert.notDeepEqual(
+    medium,
+    startLevel(createGame(), 'MEDIUM', 2026).segments,
+    'the second level runs on a derived seed, not on the one the run started from',
+  );
+});
+
+test('input is ignored during levelup', () => {
+  const levelup = finish(pressStart(createGame(), 3));
+  const pressed = step(levelup, MAX_DT, { dx: 1, dy: 1 });
+
+  assert.deepEqual(pressed.pos, levelup.pos, 'the beat is not a phase the player can act in');
 });
 
 test('an inherited key is not a level', () => {
@@ -103,7 +220,7 @@ test('title after scare has no maze', () => {
 });
 
 test('input ignored outside playing', () => {
-  for (const phase of ['title', 'select', 'scare']) {
+  for (const phase of ['title', 'levelup', 'scare']) {
     const state = { ...openField('EASY', 2), phase };
     const next = step(state, MAX_DT, RIGHT);
     assert.deepEqual(next.pos, state.pos, `input moved the blob during ${phase}`);
@@ -234,11 +351,11 @@ test('contact changes no phase', () => {
   assert.equal(step(state, MAX_DT, LEFT).phase, 'playing', 'contact is not a loss and not an ending');
 });
 
-test('exit within radius wins', () => {
+test('exit within radius ends the level', () => {
   const state = openField('EASY');
   const atExit = { ...state, pos: { ...state.exit } };
 
-  assert.equal(step(atExit, MAX_DT, NO_INPUT).phase, 'scare');
+  assert.equal(step(atExit, MAX_DT, NO_INPUT).phase, 'levelup');
 });
 
 test('exit just outside radius does not win', () => {
@@ -257,12 +374,12 @@ test('reaching the exit does not require stopping', () => {
   const next = step(approaching, MAX_DT, RIGHT);
 
   assert.ok(next.pos.x > state.exit.x, 'fixture check: the blob should pass the exit centre');
-  assert.equal(next.phase, 'scare', 'a blob at full speed still trips the exit on that same step');
+  assert.equal(next.phase, 'levelup', 'a blob at full speed still trips the exit on that same step');
 });
 
 test('same seed gives the same maze', () => {
-  const first = startLevel(pressStart(createGame()), 'HARD', 99);
-  const second = startLevel(pressStart(createGame()), 'HARD', 99);
+  const first = startLevel(createGame(), 'HARD', 99);
+  const second = startLevel(createGame(), 'HARD', 99);
 
   assert.deepEqual(first.segments, second.segments);
 });
@@ -275,12 +392,15 @@ test('step never mutates its input', () => {
   assert.equal(JSON.stringify(state.pos), before, 'step must return a new state, not edit the old');
 });
 
-test('the module knows nothing of the DOM or the clock', async () => {
-  const fs = await import('node:fs');
-  const url = await import('node:url');
-  const source = fs.readFileSync(url.fileURLToPath(new URL('../src/game.js', import.meta.url)), 'utf8');
-
+test('the module still knows nothing of the clock', () => {
   for (const forbidden of ['document', 'window', 'Date', 'performance', 'localStorage']) {
-    assert.ok(!new RegExp(`\\b${forbidden}\\b`).test(source), `game.js must not reference ${forbidden}`);
+    assert.ok(
+      !new RegExp(`\\b${forbidden}\\b`).test(gameSource),
+      `game.js must not reference ${forbidden}`,
+    );
   }
+
+  // The level-up seed is derived from the previous seed rather than drawn fresh, which is exactly
+  // what keeps this true and what makes a whole run replayable from one number.
+  assert.ok(!gameSource.includes('Math.random'), 'game.js must not reference Math.random');
 });

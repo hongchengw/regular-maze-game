@@ -7,10 +7,13 @@
 import { mulberry32 } from './rng.js';
 import { generate, toSegments } from './maze.js';
 import { sweep } from './collision.js';
-import { DIFFICULTY } from './difficulty.js';
+import { DIFFICULTY, LEVELS } from './difficulty.js';
 
 /** Seconds. Caps a frame delta so a background tab regaining focus cannot jump the maze. */
 export const MAX_DT = 0.05;
+
+/** Seconds the `LEVEL n OF 3` beat holds between two levels. */
+export const LEVELUP_DURATION = 1;
 
 /** Seconds the jumpscare image holds before the app returns to the title screen. */
 export const SCARE_DURATION = 10;
@@ -21,6 +24,7 @@ export function createGame() {
     phase: 'title',
     levelName: null,
     level: null,
+    levelIndex: 0,
     seed: null,
     maze: null,
     segments: null,
@@ -28,16 +32,20 @@ export function createGame() {
     start: null,
     exit: null,
     hits: 0,
+    levelupElapsed: 0,
     scareElapsed: 0,
   };
 }
 
-/** Title to select. */
-export function pressStart(state) {
-  return { ...state, phase: 'select' };
+/**
+ * Title straight into the first level. There is nothing to choose: the three levels are played in
+ * `LEVELS` order, every time.
+ */
+export function pressStart(state, seed) {
+  return startLevel(state, LEVELS[0], seed);
 }
 
-/** Select to playing: carve a maze from `seed` and place the blob in the centre of cell (0,0). */
+/** Playing: carve a maze from `seed` and place the blob in the centre of cell (0,0). */
 export function startLevel(state, levelName, seed) {
   // Own properties only. `__proto__`, `constructor`, and friends all return something truthy from a
   // plain object, so a bare lookup would pass this guard and fail later with a confusing error.
@@ -54,6 +62,7 @@ export function startLevel(state, levelName, seed) {
     phase: 'playing',
     levelName,
     level,
+    levelIndex: LEVELS.indexOf(levelName),
     seed,
     maze,
     segments: toSegments(maze),
@@ -61,8 +70,18 @@ export function startLevel(state, levelName, seed) {
     start,
     exit: { x: level.cols - 0.5, y: level.rows - 0.5 },
     hits: 0,
+    levelupElapsed: 0,
     scareElapsed: 0,
   };
+}
+
+/**
+ * The next level's seed, derived from the current one rather than drawn from the clock or a global
+ * random source. Keeping the derivation pure is what leaves this module with no dependency on either
+ * of those, and it is what lets a whole three-level run be replayed from a single starting seed.
+ */
+function deriveSeed(seed) {
+  return Math.floor(mulberry32(seed)() * 2 ** 32);
 }
 
 /** Normalize an input vector longer than 1, so the blob's speed is equal in all eight directions. */
@@ -92,15 +111,16 @@ function stepPlaying(state, dt, input) {
   const slidY = sweep(slidX.pos, { x: slidX.pos.x, y: slidX.pos.y + vy }, r, segments, halfThickness);
 
   const moved = slidY.pos;
+  const hits = state.hits + (slidX.hit || slidY.hit ? 1 : 0);
   const reached = Math.hypot(moved.x - state.exit.x, moved.y - state.exit.y) < level.exitRadius;
 
-  return {
-    ...state,
-    pos: moved,
-    hits: state.hits + (slidX.hit || slidY.hit ? 1 : 0),
-    phase: reached ? 'scare' : state.phase,
-    scareElapsed: 0,
-  };
+  if (!reached) return { ...state, pos: moved, hits };
+
+  // The level ends the instant the exit is touched. Only the last level's exit fires the scare;
+  // every earlier one hands over through the level-up beat.
+  return state.levelIndex + 1 < LEVELS.length
+    ? { ...state, pos: moved, hits, phase: 'levelup', levelupElapsed: 0 }
+    : { ...state, pos: moved, hits, phase: 'scare', scareElapsed: 0 };
 }
 
 /**
@@ -111,6 +131,12 @@ export function step(state, dt, input) {
   const clamped = Math.min(dt, MAX_DT);
 
   if (state.phase === 'playing') return stepPlaying(state, clamped, input);
+
+  if (state.phase === 'levelup') {
+    const levelupElapsed = state.levelupElapsed + clamped;
+    if (levelupElapsed < LEVELUP_DURATION) return { ...state, levelupElapsed };
+    return startLevel(state, LEVELS[state.levelIndex + 1], deriveSeed(state.seed));
+  }
 
   if (state.phase === 'scare') {
     const scareElapsed = state.scareElapsed + clamped;

@@ -28,13 +28,13 @@ body {
 }
 
 body[data-phase='title'] [data-screen='title'],
-body[data-phase='select'] [data-screen='select'],
+body[data-phase='levelup'] [data-screen='levelup'],
 body[data-phase='playing'] [data-screen='playing'] {
   display: flex;
 }
 
 [data-screen='title'],
-[data-screen='select'] {
+[data-screen='levelup'] {
   position: fixed;
   inset: 0;
   height: 100dvh;
@@ -48,8 +48,16 @@ body[data-phase='playing'] [data-screen='playing'] {
   color: #fff;
 }
 
-[data-screen='select'] {
+[data-screen='levelup'] {
   justify-content: center;
+}
+
+/* The level-up beat: one line of text on black, matched to the buttons so it reads as the same
+   app rather than as an interstitial. It is a beat, not a screen the player acts on. */
+.levelup {
+  margin: 0;
+  font-size: 16px;
+  letter-spacing: 0.18em;
 }
 
 /* The warning is the user's only forewarning. It reads before the button, so it comes first in the
