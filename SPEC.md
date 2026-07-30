@@ -68,8 +68,35 @@ base-uri 'none'; form-action 'none'
 
 The two hashes are computed at build time over exactly the script and style text that ships, so a
 tampered or accidentally corrupted bundle refuses to execute rather than running modified code.
-`frame-ancestors` is deliberately absent: it is ignored in a `<meta>` policy, and embedding the game
-bypasses nothing, since an embedder still gets the title screen and its warning.
+`frame-ancestors` is absent from this policy only because it is ignored in a `<meta>` policy. It is
+sent as a real response header instead, where a host allows one (see below).
+
+## 3a. Deployment
+
+The artifact is a static file, so any host that can serve one will do. `vercel.json` configures the
+one the project deploys to:
+
+- `outputDirectory` is `dist`, `buildCommand` is `npm run build`, and `framework` is null. There is
+  nothing to install, since the project has no dependencies.
+- The publish directory must always be the directory the build actually writes to. That is asserted
+  by running the real build, not by matching a string.
+
+A host can set response headers, which the document cannot set for itself:
+
+- `Content-Security-Policy: frame-ancestors 'none'` stops the game being embedded. This **does**
+  protect something real: the title screen's warning is the player's only forewarning, and an
+  embedder can size or position an iframe so that only the START button is visible and the warning is
+  cropped out of view. Framing is refused rather than trusted. `X-Frame-Options: DENY` says the same
+  thing to older clients.
+- `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, and a `Permissions-Policy`
+  denying camera, microphone, geolocation, payment, and USB, none of which the game uses.
+- `Cache-Control: public, max-age=0, must-revalidate`. The whole app is one HTML file, so a stale
+  cached copy is a stale app.
+
+**The header policy is framing-only, deliberately.** Content-Security-Policy headers and meta
+policies combine by intersection, so a `script-src` or `style-src` sent by the host would also have
+to allow the bundle's hashes, and would silently blank the app if it did not. The hashes belong to
+the artifact, which is the only thing that knows them.
 
 ## 4. Assets
 
@@ -368,6 +395,10 @@ are readable in one place.
   block that carries it. The bundle's inline script and style match the CSP hashes that ship with it.
 - **Never trusts an inherited key.** Every lookup of a caller-supplied string against a map checks
   own properties only.
+- **Never framed.** The deployment refuses embedding, so the warning cannot be cropped out of view by
+  a host page.
+- **The deployment's header policy never carries `script-src` or `style-src`**, which would blank the
+  app by intersecting away the bundle's own hashes.
 - **No flashes** in the jumpscare styles.
 - **No exit marker and no HUD** during `playing`.
 - The warning text appears verbatim in the bundle.

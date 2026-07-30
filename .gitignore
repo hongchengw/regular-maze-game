@@ -1,3 +1,24 @@
+# dist/ is deliberately NOT ignored. dist/index.html is a committed artifact: it is the shipped
+# app, rebuilt and committed whenever src/ changes.
+
 node_modules/
 
-# dist/ is deliberately not ignored. dist/index.html is a committed artifact.
+# Vercel. .vercel holds the local project link and any pulled env, which is per-machine state.
+.vercel
+
+# Local environment files. The app reads none, and nothing secret should ever be committable.
+.env
+.env.*
+
+# Logs and debug output
+*.log
+npm-debug.log*
+
+# OS and editor noise. This tree lives in OneDrive, which scatters desktop.ini files around.
+.DS_Store
+Thumbs.db
+desktop.ini
+*.tmp
+*.swp
+*~
+.idea/

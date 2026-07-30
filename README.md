@@ -22,6 +22,15 @@ There is no `npm run dev` and no dev server, because there is nothing to serve. 
 To change the scare image, replace `assets/jumpscare.jpg` and build again. The media type follows the
 file extension, so `.png`, `.webp`, `.gif`, and `.avif` work too without touching any code.
 
+## Deploy
+
+Import the repository on Vercel, or run `vercel` from the project root. `vercel.json` already sets
+everything: build with `npm run build`, publish `dist/`, no framework, nothing to install.
+
+The deployment also sends the headers the document cannot set for itself, chiefly
+`frame-ancestors 'none'` so the game cannot be embedded in someone else's page with the warning
+cropped out of view.
+
 ## Test
 
 ```

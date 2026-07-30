@@ -2,6 +2,58 @@
 
 Newest first. One entry per completed task.
 
+## Deploy - Ready the project for Vercel - 2026-07-30 12:47 AM EDT
+
+**Added**
+- `vercel.json`: `buildCommand` `npm run build`, `outputDirectory` `dist`, `framework` null. Nothing
+  to install, since the project has no dependencies. Without this the platform would guess an output
+  directory and publish nothing.
+- Response headers the document cannot set for itself:
+  `Content-Security-Policy: frame-ancestors 'none'` with `X-Frame-Options: DENY` for older clients,
+  `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, a `Permissions-Policy` denying
+  camera, microphone, geolocation, payment, and USB, and
+  `Cache-Control: public, max-age=0, must-revalidate`, since the whole app is one HTML file and a
+  stale cached copy is a stale app.
+- `tests/deploy.test.js`, 8 cases: the build command names a script that exists, the publish
+  directory is where the build **actually writes** (asserted by running the real build, not by
+  matching a string), no framework, the header set, a cache policy that revalidates, `.vercelignore`
+  never excluding something the build needs, and a `.gitignore` that keeps `dist/` committed while
+  dropping `.vercel`.
+- A guard that the **header policy stays framing-only**. CSP policies combine by intersection, so a
+  `script-src` or `style-src` sent by the host would also have to allow the bundle's hashes and would
+  silently blank the app if it did not. The hashes belong to the artifact, which is the only thing
+  that knows them.
+- `README.md`: a Deploy section.
+
+**Changed**
+- `.gitignore`: adds `.vercel`, `.env` files, logs, and OS and editor noise including `desktop.ini`,
+  which OneDrive scatters through this tree. The note that `dist/` is deliberately not ignored is
+  promoted to the top of the file, where it is harder to miss.
+- `SPEC.md`: new section 3a covering deployment, and two new invariants in section 14.
+
+**Deleted**
+- Nothing.
+
+**Notes**
+- **Correction to the security audit of 2026-07-29.** That audit dismissed iframe embedding on the
+  grounds that "an embedder still gets the title screen and its warning, and nothing is bypassed."
+  That reasoning was incomplete: an embedder controls the iframe's size and position, so it can crop
+  the warning out of view and leave only the START button visible. The warning is the player's only
+  forewarning, so framing is now refused rather than trusted. The other half of the dismissal still
+  holds, which is why this is a header rather than a `<meta>` directive: `frame-ancestors` is ignored
+  in a meta policy, and a host was needed before it could be sent at all.
+- Verified against a local server that reads `vercel.json` and replays the real output directory and
+  headers, rather than a retyped approximation. Over HTTP with every header applied: title to select
+  to playing, the canvas sized, the fog painting, and zero console errors or CSP violations, so the
+  header policy and the bundle's meta policy do not conflict. The app had only ever been exercised
+  over `file://` before this.
+- Framing verified as actually blocked, not merely configured: a page embedding the app in a
+  400x120 iframe, which is exactly the warning-cropping attack, gets
+  `Framing ... violates the following Content Security Policy directive: "frame-ancestors 'none'"`
+  and a null `contentDocument`.
+- Checked that no tracked file became ignored by the new rules, and that `dist/index.html` is still
+  tracked.
+
 ## Assets - Ship the real jumpscare image - 2026-07-30 12:36 AM EDT
 
 The user supplied `assets/jumpscare.jpg` and removed the placeholder PNG, which left the build broken
