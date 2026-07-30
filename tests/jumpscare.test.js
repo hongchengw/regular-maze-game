@@ -18,24 +18,25 @@ function scaring(scareElapsed = 0) {
   return { ...playing, phase: 'scare', scareElapsed };
 }
 
-test('SCARE_DURATION is exactly 10', () => {
-  assert.equal(SCARE_DURATION, 10);
+test('SCARE_DURATION is exactly 6', () => {
+  // The only place in the suite that states the number. Every other case derives from the constant,
+  // so retuning the scare is one line here and one line in src/game.js.
+  assert.equal(SCARE_DURATION, 6);
 });
 
-test('scream ends well before the image', () => {
-  assert.equal(
-    SCARE_DURATION - SCREAM_DURATION,
-    6,
-    'the six silent seconds are intentional: the image lingering in silence is what unsettles',
+test('the image outlasts the sound', () => {
+  assert.ok(
+    SCREAM_DURATION < SCARE_DURATION,
+    `the image must end in silence, but the sound runs ${SCREAM_DURATION}s of a ${SCARE_DURATION}s image`,
   );
 });
 
 test('phase leaves scare exactly at the duration', () => {
-  const almost = step(scaring(9.999 - MAX_DT), MAX_DT, { dx: 0, dy: 0 });
-  assert.equal(almost.phase, 'scare', 'still up at 9.999s');
+  const almost = step(scaring(SCARE_DURATION - 0.001 - MAX_DT), MAX_DT, { dx: 0, dy: 0 });
+  assert.equal(almost.phase, 'scare', 'still up a millisecond short of the duration');
 
   const done = step(scaring(SCARE_DURATION - MAX_DT), MAX_DT, { dx: 0, dy: 0 });
-  assert.equal(done.phase, 'title', 'gone at exactly 10.0s');
+  assert.equal(done.phase, 'title', 'and gone at exactly the duration');
 });
 
 test('returning to title discards all state', () => {
@@ -77,7 +78,7 @@ test('overlay markup has no text content', () => {
 test('the overlay is a function of phase, not of a timer', () => {
   const source = read('jumpscare.js');
 
-  assert.ok(!/setTimeout|setInterval/.test(source), 'the 10s clock is game.step\'s, so one clock and no drift');
+  assert.ok(!/setTimeout|setInterval/.test(source), 'the scare clock is game.step\'s, so one clock and no drift');
 });
 
 test('show paints the image and plays the scream once', () => {

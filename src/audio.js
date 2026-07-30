@@ -6,7 +6,7 @@
 // no sound, and the music is cut before the scream is scheduled, so the scream still lands into
 // silence, which is what makes it land at all.
 
-/** Seconds. The image holds for 10s, so the last 6 are deliberately silent. */
+/** Seconds. Shorter than the image, so the scare always ends in silence rather than in a cut-off. */
 export const SCREAM_DURATION = 4.0;
 
 /** Master gain ceiling. Startling, not damaging. */

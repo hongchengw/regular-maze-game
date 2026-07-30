@@ -2,6 +2,44 @@
 
 Newest first. One entry per completed task.
 
+## Task 16 - Six second scare - 2026-07-30 05:55 AM EDT
+
+The jumpscare image holds for 6 seconds rather than 10, then the app is back at the title screen
+instantly, exactly as before. Ten seconds of a still image stops being frightening and starts being a
+wait.
+
+**Added**
+- Nothing.
+
+**Changed**
+- `src/game.js`: `SCARE_DURATION` from 10 to 6.
+- `tests/jumpscare.test.js`: `SCARE_DURATION is exactly 10` becomes `SCARE_DURATION is exactly 6`,
+  and is now **the only place in the suite that states the number**. `scream ends well before the
+  image`, which pinned the gap at exactly 6, becomes `the image outlasts the sound` and asserts the
+  inequality instead, so retuning either constant cannot break a case that was really about a
+  subtraction. `phase leaves scare exactly at the duration` derives its boundary from
+  `SCARE_DURATION` rather than the literal 9.999.
+- `tests/game.test.js`: `scare to title after 10s` becomes `scare to title after the full duration`,
+  with both 9.9 literals replaced by expressions over `SCARE_DURATION`.
+- `src/audio.js`: the `SCREAM_DURATION` doc comment no longer names the old durations.
+
+**Deleted**
+- Nothing.
+
+**Notes**
+- Red run observed first: the pinned case failed on 10 against 6, and nothing else did, which was the
+  point of pinning it.
+- One real failure worth recording. `scare to title` accumulates `MAX_DT` in a loop, and 120
+  additions of 0.05 land a float hair **short** of 6 where 200 of them landed a hair **over** 10, so
+  the case that passed at ten seconds failed at six. It now steps one frame past the boundary and
+  says why. The exact instant is still asserted precisely in `tests/jumpscare.test.js`, which sets
+  the clock rather than summing it, so no coverage was traded away.
+- `tests/integration.test.js` already derived its frame counts from `SCARE_DURATION` and needed no
+  change, as the brief predicted.
+- `SCREAM_DURATION` stays at 4.0 and the synthesized scream is untouched. Task 17 is what replaces
+  the sound; the invariant holds at 4 against 6 in the meantime.
+- 165 cases pass, unchanged. `node build/build.js` rebuilt `dist/index.html` at 119,687 bytes.
+
 ## Assets - Ship the replacement jumpscare image - 2026-07-30 05:53 AM EDT
 
 The user replaced `assets/jumpscare.jpg` with a different picture. Per `SPEC.md` section 4 the entire

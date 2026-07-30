@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; script-src 'sha256-Dy9xPMnXkiS5hgCTU2zezHgZkKIBFEaE28/V+m8BEjo='; style-src 'sha256-OYi+pCZqPscJol7VbGF+zVZxrIw4+OH/bRWTfn0GQj8='; base-uri 'none'; form-action 'none'" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; script-src 'sha256-VKdTeKt989m7f5rTkUS5gioWOAVcYLIH9WK2G0kX4Mc='; style-src 'sha256-OYi+pCZqPscJol7VbGF+zVZxrIw4+OH/bRWTfn0GQj8='; base-uri 'none'; form-action 'none'" />
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
@@ -489,7 +489,7 @@ const MAX_DT = 0.05;
 const LEVELUP_DURATION = 1;
 
 /** Seconds the jumpscare image holds before the app returns to the title screen. */
-const SCARE_DURATION = 10;
+const SCARE_DURATION = 6;
 
 /** The initial state. Also the state the app returns to after a scare. */
 function createGame() {
@@ -1019,7 +1019,7 @@ function createInput(dpadElement) {
 // no sound, and the music is cut before the scream is scheduled, so the scream still lands into
 // silence, which is what makes it land at all.
 
-/** Seconds. The image holds for 10s, so the last 6 are deliberately silent. */
+/** Seconds. Shorter than the image, so the scare always ends in silence rather than in a cut-off. */
 const SCREAM_DURATION = 4.0;
 
 /** Master gain ceiling. Startling, not damaging. */

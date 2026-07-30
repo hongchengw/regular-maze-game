@@ -200,14 +200,18 @@ test('an inherited key is not a level', () => {
   }
 });
 
-test('scare to title after 10s', () => {
+test('scare to title after the full duration', () => {
   const scared = { ...openField('EASY', 4), phase: 'scare', scareElapsed: 0 };
+  const nearlyDone = SCARE_DURATION - 0.1;
 
-  const almost = advance(scared, 9.9);
+  const almost = advance(scared, nearlyDone);
   assert.equal(almost.phase, 'scare', 'the image holds for the full duration');
-  assert.ok(Math.abs(almost.scareElapsed - 9.9) < 1e-9);
+  assert.ok(Math.abs(almost.scareElapsed - nearlyDone) < 1e-9);
 
-  const done = advance(almost, SCARE_DURATION - 9.9);
+  // One frame past the boundary: accumulating MAX_DT lands a float hair either side of it depending
+  // on the duration. The exact instant is asserted in tests/jumpscare.test.js, which sets the clock
+  // rather than summing it.
+  const done = advance(almost, 0.1 + MAX_DT);
   assert.equal(done.phase, 'title');
 });
 

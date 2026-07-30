@@ -16,7 +16,7 @@ export const MAX_DT = 0.05;
 export const LEVELUP_DURATION = 1;
 
 /** Seconds the jumpscare image holds before the app returns to the title screen. */
-export const SCARE_DURATION = 10;
+export const SCARE_DURATION = 6;
 
 /** The initial state. Also the state the app returns to after a scare. */
 export function createGame() {
