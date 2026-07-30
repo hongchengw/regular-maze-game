@@ -86,8 +86,8 @@ test('show paints the image and plays the scream once', () => {
   let screams = 0;
   const audio = { playScream: () => { screams += 1; } };
 
-  const jumpscare = createJumpscare(overlay, img, audio, 'data:image/png;base64,AAAA');
-  assert.equal(img.src, 'data:image/png;base64,AAAA', 'the image is preloaded at startup, not on show');
+  const jumpscare = createJumpscare(overlay, img, audio, 'data:image/jpeg;base64,AAAA');
+  assert.equal(img.src, 'data:image/jpeg;base64,AAAA', 'the image is preloaded at startup, not on show');
 
   jumpscare.show();
   assert.ok(overlay.classList.added.includes('visible'));

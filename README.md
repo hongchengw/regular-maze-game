@@ -19,8 +19,8 @@ There is no `npm run dev` and no dev server, because there is nothing to serve. 
 `npm run build` and then reload the file in your browser. Under the hood the script just runs
 `node build/build.js`, which you can call directly if you prefer.
 
-To use your own image, replace `assets/jumpscare.png` and build again. The committed one is a
-placeholder.
+To change the scare image, replace `assets/jumpscare.jpg` and build again. The media type follows the
+file extension, so `.png`, `.webp`, `.gif`, and `.avif` work too without touching any code.
 
 ## Test
 

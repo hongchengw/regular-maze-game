@@ -2,6 +2,58 @@
 
 Newest first. One entry per completed task.
 
+## Assets - Ship the real jumpscare image - 2026-07-30 12:36 AM EDT
+
+The user supplied `assets/jumpscare.jpg` and removed the placeholder PNG, which left the build broken
+on `ENOENT` and one test failing. The scare now ships the real image.
+
+**Added**
+- `build/build.js`: `mimeFor(file)`, deriving the data URI's media type from the asset's extension,
+  with `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`, and `.avif` recognised case-insensitively. An
+  unrecognised extension fails the build naming the offending path. Guessing instead would ship a
+  data URI the browser refuses to decode, and the scare would be a blank screen with nothing logged.
+- `tests/build.test.js`: four cases covering the extension-to-media-type mapping, the unknown-type
+  failure, a full build against a PNG fixture proving a format swap needs no code change, and a
+  byte-for-byte comparison of the decoded payload against the file on disk, which the old
+  length-only assertion would have missed.
+- `tests/fixtures/asset/swap.png`, a 69-byte hand-assembled PNG for the format-swap case.
+
+**Changed**
+- `build/build.js`: the default asset is `assets/jumpscare.jpg`, and the media type comes from
+  `mimeFor` rather than a hardcoded `image/png`.
+- `SPEC.md` section 4: the asset is the user's real image rather than a placeholder, and the media
+  type is documented as following the extension. Section 13 names the `.jpg`.
+- `README.md`: the swap procedure names the `.jpg` and no longer calls the committed image a
+  placeholder, which stopped being true.
+- `tests/jumpscare.test.js`: the fake data URI in the preload case is a jpeg, matching production.
+
+**Deleted**
+- Nothing by this change. `assets/jumpscare.png`, the generated placeholder, was already removed by
+  the user when the real image landed.
+
+**Notes**
+- Verified in real Chrome against the built artifact: the overlay reports `data:image/jpeg`, decodes
+  to 292x239 (exactly the source file's dimensions, so the browser really did decode it rather than
+  silently failing), `complete` is true, `#screens` is `display: none`, the cursor is hidden, and
+  there are zero errors and zero CSP violations. A screenshot confirms it covers the viewport with no
+  letterboxing.
+- **Full end-to-end playthrough of the shipped bundle, won for real.** The seed was pinned by stubbing
+  `Date.now` and `Math.random` before any page script ran, making the maze known in advance; the blob
+  was then driven along that maze's own solution with real dispatched WASD key events, closed loop,
+  reading its position back by locating it on the canvas rather than from game state, so the bundle
+  was exercised as a black box. Timeline: `title`, START to `select`, EASY to `playing`, 54 of 55
+  waypoints driven in 17.1 seconds, exit reached, `scare` with the image up and every other element
+  hidden, still up at 9 seconds, back at `title` by 11 seconds with the overlay gone, and START
+  working again. Zero console errors, exceptions, or CSP violations throughout.
+- The blob tripped the exit one waypoint before the final cell centre, which is correct: `exitRadius`
+  is 0.30 cells, so the scare fires on approach rather than on arrival.
+- The source image is 292x239 and 4.3 KB, so it is heavily upscaled on a desktop display and looks
+  soft. That suits the aesthetic, but a higher-resolution source would sharpen it at a cost of a
+  larger bundle. The bundle is 44,790 bytes.
+- `tasks/*.md` still refers to `assets/jumpscare.png` throughout. Those briefs are the historical
+  record carrying the user's sign-off and are deliberately left unedited, as with the earlier defects
+  found in them.
+
 ## Docs - Document the real build command - 2026-07-30 12:10 AM EDT
 
 **Changed**

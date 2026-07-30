@@ -6,17 +6,19 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { build, resolveGraph, stripModuleSyntax } from '../build/build.js';
+import { build, mimeFor, resolveGraph, stripModuleSyntax } from '../build/build.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
 const fixtures = path.join(here, 'fixtures');
 
+const ASSET = path.join(root, 'assets', 'jumpscare.jpg');
+
 /** Build a fixture source tree to a throwaway file, so dist/ is never touched by these cases. */
-function buildFixture(name) {
+function buildFixture(name, assetFile = ASSET) {
   return build({
     srcDir: path.join(fixtures, name),
-    assetFile: path.join(root, 'assets', 'jumpscare.png'),
+    assetFile,
     outFile: path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'maze-build-')), 'index.html'),
   });
 }
@@ -61,14 +63,44 @@ test('output inlines the stylesheet', () => {
 });
 
 test('output inlines the jumpscare asset', () => {
-  assert.ok(output.includes('data:image/png;base64,'), 'asset should be a png data URI');
+  assert.ok(output.includes('data:image/jpeg;base64,'), 'the shipped asset is a jpeg data URI');
 
-  const match = output.match(/data:image\/png;base64,([A-Za-z0-9+/=]+)/);
+  const match = output.match(/data:image\/jpeg;base64,([A-Za-z0-9+/=]+)/);
   assert.ok(match, 'the data URI should carry base64 payload');
 
   const decoded = Buffer.from(match[1], 'base64');
-  const onDisk = fs.readFileSync(path.join(root, 'assets', 'jumpscare.png'));
+  const onDisk = fs.readFileSync(ASSET);
   assert.equal(decoded.length, onDisk.length, 'decoded bytes should match the file on disk');
+  assert.ok(decoded.equals(onDisk), 'and should be the same bytes, not merely the same length');
+});
+
+test('the media type follows the asset extension', () => {
+  assert.equal(mimeFor('a/b/jumpscare.jpg'), 'image/jpeg');
+  assert.equal(mimeFor('jumpscare.jpeg'), 'image/jpeg');
+  assert.equal(mimeFor('jumpscare.png'), 'image/png');
+  assert.equal(mimeFor('jumpscare.webp'), 'image/webp');
+  assert.equal(mimeFor('jumpscare.gif'), 'image/gif');
+  assert.equal(mimeFor('jumpscare.avif'), 'image/avif');
+  assert.equal(mimeFor('JUMPSCARE.JPG'), 'image/jpeg', 'the extension is matched case-insensitively');
+});
+
+test('an unrecognised asset type fails the build', () => {
+  // Guessing a media type here would ship a data URI the browser refuses to decode, and the scare
+  // would be a blank screen with no error anywhere.
+  assert.throws(
+    () => mimeFor('assets/jumpscare.tiff'),
+    (err) => err.message.includes('jumpscare.tiff'),
+    'the error should name the offending file',
+  );
+});
+
+test('swapping the asset format needs no code change', () => {
+  // The whole swap procedure is "replace the file and rebuild", so a png must still work.
+  const png = path.join(fixtures, 'asset', 'swap.png');
+  const swapped = buildFixture('hostile-js', png);
+
+  assert.ok(swapped.includes('data:image/png;base64,'), 'a png asset yields a png data URI');
+  assert.ok(!swapped.includes('data:image/jpeg'), 'and nothing is left over from the jpeg default');
 });
 
 test('an inlined module cannot close the script block', () => {

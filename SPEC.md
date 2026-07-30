@@ -73,8 +73,13 @@ bypasses nothing, since an embedder still gets the title screen and its warning.
 
 ## 4. Assets
 
-`assets/jumpscare.png` is supplied by the user. The committed file is a placeholder. Replacing the
-file and rerunning `node build/build.js` is the entire swap procedure.
+`assets/jumpscare.jpg` is supplied by the user and is the real scare image, not a placeholder.
+
+Replacing that file and rerunning `npm run build` is the entire swap procedure. The **media type of
+the data URI is derived from the file's extension**, so swapping in a different format is also just a
+file swap: `.png`, `.jpg`/`.jpeg`, `.webp`, `.gif`, and `.avif` are recognised. An unrecognised
+extension fails the build with the offending path, rather than emitting a data URI whose declared
+type is a guess the browser will refuse to decode.
 
 No audio file ships. The scream is synthesized at runtime (section 12).
 
@@ -328,7 +333,7 @@ once and reused.
 
 ## 13. Jumpscare
 
-- The image is `assets/jumpscare.png`, inlined as a base64 data URI. It is preloaded at app startup,
+- The image is `assets/jumpscare.jpg`, inlined as a base64 data URI. It is preloaded at app startup,
   not on show, so the first frame is never blank.
 - It covers the **entire screen**: fixed position, full viewport, `object-fit: cover`, black behind
   it so any letterboxing reads as black.

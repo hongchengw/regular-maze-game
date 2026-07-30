@@ -81,6 +81,31 @@ export function assertInlineStyleSafe(css, file) {
   return css;
 }
 
+/** Image media types the inliner recognises, keyed by file extension. */
+const MEDIA_TYPES = Object.freeze({
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.avif': 'image/avif',
+});
+
+/**
+ * Media type for an asset, from its extension, so swapping the jumpscare for a different format is
+ * still just a file swap. Guessing here would ship a data URI the browser refuses to decode and the
+ * scare would be a blank screen with nothing logged anywhere, so an unknown type fails the build.
+ */
+export function mimeFor(file) {
+  const ext = path.extname(file).toLowerCase();
+  const type = Object.prototype.hasOwnProperty.call(MEDIA_TYPES, ext) ? MEDIA_TYPES[ext] : null;
+  if (!type) {
+    const known = Object.keys(MEDIA_TYPES).join(', ');
+    throw new Error(`Cannot inline '${rel(file)}': unknown image type '${ext}'. Expected one of ${known}`);
+  }
+  return type;
+}
+
 /** CSP source expression for an inline block, hashed over exactly the text that ships. */
 function sha256Source(text) {
   return `'sha256-${crypto.createHash('sha256').update(text, 'utf8').digest('base64')}'`;
@@ -89,7 +114,7 @@ function sha256Source(text) {
 /** Build the single-file bundle. Returns the output HTML and writes it to `outFile`. */
 export function build({
   srcDir = path.join(ROOT, 'src'),
-  assetFile = path.join(ROOT, 'assets', 'jumpscare.png'),
+  assetFile = path.join(ROOT, 'assets', 'jumpscare.jpg'),
   outFile = path.join(ROOT, 'dist', 'index.html'),
 } = {}) {
   const script = escapeInlineScript(
@@ -101,7 +126,7 @@ export function build({
 
   const styleFile = path.join(srcDir, 'styles.css');
   const styles = assertInlineStyleSafe(fs.readFileSync(styleFile, 'utf8').trim(), rel(styleFile));
-  const asset = `data:image/png;base64,${fs.readFileSync(assetFile).toString('base64')}`;
+  const asset = `data:${mimeFor(assetFile)};base64,${fs.readFileSync(assetFile).toString('base64')}`;
 
   // Newlines are normalized to LF before anything is hashed or written. An HTML parser normalizes
   // CRLF to LF before hashing an inline block, so a CRLF checkout would otherwise ship a policy
