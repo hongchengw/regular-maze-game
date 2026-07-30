@@ -2,6 +2,70 @@
 
 Newest first. One entry per completed task.
 
+## Docs - Specify the QA changes and add their task briefs - 2026-07-30 01:28 AM EDT
+
+Documentation only. **No source, test, or build file was touched and nothing was implemented.** Play
+testing produced five changes; they are specified here first and executed later, which is the repo's
+normal spec-first order.
+
+**Read this before reading a green test run as agreement:** the code now knowingly trails `SPEC.md`.
+`npm test` still passes with 139 cases because the tests match the code, and both now describe the
+previous behaviour until tasks 11 to 15 are executed. Per the rule at the top of `SPEC.md`, the code
+is the bug.
+
+**Added**
+- `tasks/task-11-wall-block.md`: per-axis sweeping so a wall blocks the pressed axis and the blob
+  slides along it instead of being returned to the start. 7 test cases, including the sliding case
+  and a guard that per-axis sweeping did not weaken anti-tunneling.
+- `tasks/task-12-fog-widen.md`: `fogRadius` to 2.4, 1.8, and 1.3. 4 cases, including one bounding the
+  wider fog against the invariant that the exit is never visible from the start.
+- `tasks/task-13-level-progression.md`: the three levels in order with a `levelup` beat, the select
+  screen deleted, and seeds derived rather than injected so `step` stays free of the clock. 11 cases.
+- `tasks/task-14-exit-marker.md`: a slowly pulsing exit marker drawn inside the fog clip. 5 cases,
+  including an anti-strobe continuity guard and the visibility predicate that keeps the exit hidden
+  from outside the fog.
+- `tasks/task-15-ambient-music.md`: a synthesized drone at `MUSIC_GAIN <= 0.06`, idempotent start,
+  ramped stop, and a case pinning the stop to happen before the scream is scheduled. 8 cases.
+- `tasks/README.md`: a "Decisions changed after QA" table recording what each reversed decision was,
+  what it is now, and why, since tasks 01 to 10 were executed against the originals and their briefs
+  still describe them. Plus the tasks 11 to 15 execution order.
+
+**Changed**
+- `SPEC.md` section 2: `select` removed, `levelup` added, and a note that sections 2, 8, 9, 10, and
+  12 are specified ahead of the code.
+- `SPEC.md` section 7: records that `sweep` still never slides, and that sliding is the game layer's
+  business, so `src/collision.js` needs no change.
+- `SPEC.md` section 8: `fogRadius` 2.2, 1.6, 1.1 becomes 2.4, 1.8, 1.3, with the approximate pixel
+  mapping updated to 140, 68, and 32 px. `LEVELS` is now described as the play order rather than the
+  select-screen button order.
+- `SPEC.md` section 9: the new phase machine, wall contact blocking per axis, `hits` redefined as
+  frames blocked, `LEVELUP_DURATION`, the derived-seed rule, and `levelIndex` and `levelupElapsed` in
+  the state shape.
+- `SPEC.md` section 10: the pulsing exit marker, its reveal distance, and the rule that the
+  performance pass's frame-skip must not freeze the pulse.
+- `SPEC.md` section 12: background music, its gain cap, and the requirement that it stops before the
+  scream is scheduled.
+- `SPEC.md` section 14: the "no exit marker" absolute becomes "never visible from outside the fog
+  radius", plus new absolutes for music never overlapping the scream and every level being played in
+  order.
+- `tasks/README.md`: the product decisions table and phase diagram.
+
+**Deleted**
+- Nothing.
+
+**Notes**
+- Four of the five changes reverse decisions marked "fixed, do not relitigate". Each replacement is
+  deliberately narrow so the original reasoning still holds where it can: the exit marker is
+  invisible until the player is on top of it, and the music is quiet enough and stops early enough
+  that the scream still lands in silence.
+- `SPEC.md` section 13 is untouched on purpose. The jumpscare's no-animation and no-flash rules are
+  absolute and are unrelated to the new exit pulse, which is confined to `playing` and is slow and
+  low-contrast by specification.
+- Verified that the rebuild produces a byte-identical `dist/index.html`, which is the proof this pass
+  changed nothing executable.
+- Checked that the difficulty numbers in `SPEC.md` and in `tasks/task-12-fog-widen.md` agree, since
+  the two disagreeing is the exact failure the spec's provenance note warns about.
+
 ## Deploy - Ready the project for Vercel - 2026-07-30 12:47 AM EDT
 
 **Added**

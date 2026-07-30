@@ -27,13 +27,20 @@ Four phases, four screens, nothing else. Visibility is driven by a single `data-
 | Screen | Contents |
 | --- | --- |
 | `title` | Full black. The warning text at the bottom in white, a small `START` button centred below it. No title text, no instructions, no branding. |
-| `select` | `EASY`, `MEDIUM`, `HARD` in `LEVELS` order, same visual style as START. No difficulty descriptions. |
 | `playing` | Canvas only, plus the D-pad on coarse-pointer devices. No HUD. |
+| `levelup` | Full black. The text `LEVEL n OF 3` centred, nothing else. Holds for `LEVELUP_DURATION`, then the next maze begins. No buttons: it is a beat, not a screen the player acts on. |
 | `scare` | The jumpscare overlay only. See section 13. |
 
 The plainness of the title screen is deliberate: it must read as a bland puzzle game rather than a
-prank. Difficulty descriptions are omitted because naming the fog would give away what the game is
-about.
+prank.
+
+There is **no difficulty select screen**. The three levels are played in order (section 9), so there
+is nothing to choose. Naming the levels on a menu would also have given away that the game is about
+the fog.
+
+> Sections 2, 8, 9, 10, and 12 describe behaviour agreed after QA and specified ahead of the code.
+> Until `tasks/task-11` through `tasks/task-15` are executed, the code implements the previous
+> behaviour and is, per the rule at the top of this file, the bug.
 
 ## 3. Build and distribution
 
@@ -161,7 +168,9 @@ The blob is a circle of radius `blobRadius`. Walls are segments of half-thicknes
   A fast flick or a long frame delta therefore cannot tunnel through a wall.
 - A zero-length move tests the current position and returns without looping.
 - If the start position is already in contact, the sweep reports a hit immediately and does not move.
-- Collision never slides and never bounces. A hit is a hit; the game layer decides the consequence.
+- `sweep` itself never slides and never bounces. A hit is a hit, and the game layer decides the
+  consequence. Sliding is achieved in section 9 by sweeping each axis separately, which is a decision
+  of the game layer and not of this module. `src/collision.js` needs no change to support it.
 
 Broad-phase acceleration is deliberately out of scope. A 24x24 maze has under 1200 segments and this
 runs once per frame.
@@ -176,12 +185,12 @@ else. Harder means a larger grid, a fatter blob relative to the corridor, and a 
 | `cols` x `rows` | cells | 10 x 10 | 16 x 16 | 24 x 24 |
 | `blobRadius` | cells | 0.16 | 0.18 | 0.22 |
 | `wallHalfThickness` | cells | 0.04 | 0.035 | 0.03 |
-| `fogRadius` | cells | 2.2 | 1.6 | 1.1 |
+| `fogRadius` | cells | 2.4 | 1.8 | 1.3 |
 | `speed` | cells per second | 3.2 | 3.4 | 3.6 |
 | `exitRadius` | cells | 0.30 | 0.28 | 0.25 |
 
-`LEVELS` is `['EASY', 'MEDIUM', 'HARD']` and drives the select-screen button order, so the UI cannot
-drift from the table.
+`LEVELS` is `['EASY', 'MEDIUM', 'HARD']` and is **the order the levels are played in** (section 9),
+so the progression cannot drift from the table.
 
 Derived facts and invariants:
 
@@ -193,36 +202,47 @@ Derived facts and invariants:
 - `cols === rows` at every level.
 - Because the renderer fits the whole maze to the viewport, a larger grid means fewer pixels per
   cell, which is what makes HARD corridors visually tight without changing the cell-unit geometry.
-- `fogRadius` maps to roughly 130 px (EASY), 60 px (MEDIUM), and 27 px (HARD) on a 900 px tall
+- `fogRadius` maps to roughly 140 px (EASY), 68 px (MEDIUM), and 32 px (HARD) on a 900 px tall
   viewport. These are the intent; the table above is the source of truth if they are retuned.
 - `speed` rises slightly with difficulty so harder levels do not feel sluggish across a bigger grid.
 
 ## 9. Game phases
 
 ```
-title --START--> select --level chosen--> playing --exit reached--> scare --after 10s--> title
-                                            ^                                             |
-                                            +---------- wall hit: pos = start ------------+
+title --START--> playing(EASY) --exit--> levelup --1s--> playing(MEDIUM) --exit--> levelup --1s-->
+playing(HARD) --exit--> scare --after 10s--> title
 ```
 
-- `title`: no game state exists yet.
-- `select`: choosing a level generates a maze from a fresh seed and enters `playing`. An unknown
-  level name throws. The lookup checks **own** properties only, so an inherited key such as
-  `__proto__`, `constructor`, or `toString` is an unknown level like any other and raises the same
-  error, rather than passing a truthiness guard and failing later with an arithmetic message.
+**The three levels are played in order, every time.** There is no level select and no way to skip
+ahead: EASY, then MEDIUM, then HARD, and only the exit of HARD fires the scare. `LEVELS` in section 8
+is the order.
+
+- `title`: no game state exists yet. START begins EASY directly.
 - `playing`: the blob starts at the centre of cell `(0, 0)` and glides at `speed` cells per second
-  in the held direction. Movement is resolved by the sweep in section 7.
-- **Wall hit:** the blob's position resets to the start cell centre. The maze layout is unchanged and
-  the seed is not regenerated, so the player keeps the mental map they built. The hit count is
-  tracked in state for possible display but is not shown by default.
+  in the held direction. Movement is resolved by the sweep in section 7, one axis at a time.
+- **Wall contact blocks, it does not teleport.** The blob stops against the wall on the blocked axis
+  and keeps moving on the other, so it slides along walls. Its position is never reset to the start,
+  and the maze, seed, and level are untouched. `hits` counts frames in which a wall blocked movement;
+  it is diagnostic only and is displayed nowhere.
 - **Exit reached:** when the blob centre is within `exitRadius` of the centre of cell
-  `(cols - 1, rows - 1)`, the phase becomes `scare` immediately. No win screen, no delay, no sound
-  cue before the scare.
+  `(cols - 1, rows - 1)`, the level ends immediately. If a later level exists the phase becomes
+  `levelup`; if the level was HARD the phase becomes `scare`. No win screen and no sound cue before
+  the scare.
+- `levelup`: holds for exactly `LEVELUP_DURATION`, then generates the next level's maze and returns
+  to `playing`. The blob is placed at the new maze's start cell.
 - `scare`: lasts exactly `SCARE_DURATION`, then the phase becomes `title` and all game state is
   discarded by returning a fresh initial state.
 - Input is ignored in every phase except `playing`.
+- An unknown level name throws. The lookup checks **own** properties only, so an inherited key such
+  as `__proto__`, `constructor`, or `toString` is an unknown level like any other and raises the same
+  error, rather than passing a truthiness guard and failing later with an arithmetic message.
 
-Constants: `MAX_DT = 0.05` seconds, `SCARE_DURATION = 10` seconds.
+**Seeds are derived, not injected.** Only the first level's seed comes from the caller; each
+subsequent level's seed is derived from the previous one. This keeps `step` free of `Date`,
+`performance`, and `Math.random`, which is what lets the whole three-level run be replayed from a
+single starting seed in a test.
+
+Constants: `MAX_DT = 0.05` seconds, `SCARE_DURATION = 10` seconds, `LEVELUP_DURATION = 1` second.
 
 Movement rules:
 
@@ -232,17 +252,20 @@ Movement rules:
   directions.
 - Movement is frame-rate independent: two steps of `dt = 0.5` land where one step of `dt = 1.0`
   lands.
+- **Each axis is swept separately**, x first and then y, which is what produces wall sliding. Both
+  sweeps use the same sub-stepping as section 7, so neither axis can tunnel a wall.
 - The exit check happens **after** the move, on the post-move position, so a blob passing through at
-  full speed still triggers the scare on that same step. A blob cannot sweep past the exit inside one
+  full speed still ends the level on that same step. A blob cannot sweep past the exit inside one
   sub-step: sub-steps are at most `blobRadius / 2` (0.11 at most) and `exitRadius` is at least 0.25.
   A future retune must preserve `blobRadius / 2 < exitRadius`.
 
 State shape (plain data, no classes, safe to structured-clone):
 
 ```js
-{ phase: 'title'|'select'|'playing'|'scare',
+{ phase: 'title'|'playing'|'levelup'|'scare',
   levelName: null|'EASY'|'MEDIUM'|'HARD',
   level: null|<frozen difficulty entry>,
+  levelIndex: 0,
   seed: null|number,
   maze: null|{ cols, rows, passages },
   segments: null|[{x1,y1,x2,y2}],
@@ -250,12 +273,15 @@ State shape (plain data, no classes, safe to structured-clone):
   start: null|{ x, y },
   exit: null|{ x, y },
   hits: 0,
+  levelupElapsed: 0,
   scareElapsed: 0 }
 ```
 
-API: `createGame()`, `pressStart(state)`, `startLevel(state, levelName, seed)`, and
+API: `createGame()`, `pressStart(state, seed)`, `startLevel(state, levelName, seed)`, and
 `step(state, dt, input)` where `input` is `{ dx, dy }`. `step` returns a new state object and never
 mutates its input. The module knows nothing of `document`, `window`, `Date`, or `performance`.
+`startLevel` remains exported and directly callable, since it is what makes a single level testable
+in isolation.
 
 ## 10. Rendering and fog
 
@@ -272,8 +298,14 @@ mutates its input. The module knows nothing of `document`, `window`, `Date`, or 
 - **Fog of war:** only the disc of radius `fogRadius * scale` centred on the blob is visible. Outside
   it the screen is fully black, not dimmed. The edge fades over roughly the outer 25% of the radius
   so the boundary is not a hard cookie-cutter.
-- The exit is **not** marked or highlighted. Marking it would leak the goal through the fog and
-  weaken the prank.
+- **The exit is marked, but only from close range.** The marker is drawn inside the fog clip like the
+  walls, so it is invisible until the player is within `fogRadius` of it, and it never reveals the
+  goal from across the maze. It is drawn in a distinct hue rather than wall-white so it cannot be
+  mistaken for a wall, and it pulses slowly so arriving at it is unmistakable.
+  - The pulse is slow and low-contrast: a period of roughly 1.4 seconds, varying alpha and radius
+    between gentle bounds. It never approaches a strobe, and it is confined to `playing`. This has no
+    bearing on section 13, whose no-animation and no-flash rules remain absolute.
+  - Because the marker animates, the frame-skip rule below does not apply while it is on screen.
 - Nothing else is drawn during `playing`: no HUD, no timer, no hit counter, no minimap.
 - The canvas backing store accounts for `devicePixelRatio` so lines stay crisp on retina and mobile,
   but the ratio is **capped at 2**. A phone reporting 3 would otherwise allocate and fill 9x the
@@ -289,7 +321,9 @@ Frame cost rules, which exist because this runs on phones:
 - **No `shadowBlur`.** The blob's glow is a cached radial gradient. Canvas shadow blur is among the
   most expensive 2D operations and is worst on exactly the mobile GPUs this needs to run on.
 - **A frame that would not change anything is skipped.** If the blob has not moved and the canvas has
-  not been resized since the last draw, the draw is skipped entirely.
+  not been resized since the last draw, the draw is skipped entirely. The exit marker's pulse is the
+  one exception: while the marker is within the fog and therefore on screen, every frame is drawn,
+  because a skipped frame would freeze the pulse.
 - Resize events are coalesced into a single `requestAnimationFrame`, because a mobile browser fires
   them continuously while its address bar slides and each one otherwise reallocates the backing
   store.
@@ -313,7 +347,7 @@ Frame cost rules, which exist because this runs on phones:
   `constructor` or `toString` is ignored like any other unrecognised code.
 - The vector is raw, for example `up + right` is `{dx: 1, dy: -1}`. Normalization is `step`'s job.
 - The D-pad is visible only during `playing`, and only where a coarse pointer is present. It never
-  appears on the title, select, or scare screens.
+  appears on the title, levelup, or scare screens.
 - Held state is cleared whenever gameplay ends and on window blur or `visibilitychange`, so a key
   held across a phase change does not leak in as phantom movement.
 - Handled keys call `preventDefault()` so arrow keys never scroll the page. The viewport disables
@@ -342,8 +376,27 @@ Frame cost rules, which exist because this runs on phones:
   started outside a user gesture. `unlock()` is safe to call repeatedly.
 - If the Web Audio API is unavailable or the context fails to resume, the visual scare still runs.
   Audio failure never blocks the jumpscare and never throws into the animation loop.
-- No audio plays at any other time. The title, select, and gameplay screens are silent, and a wall
-  hit makes no sound. Silence during play is what makes the scare land.
+- The title screen is silent, and wall contact makes no sound. There are no other sound effects of
+  any kind.
+
+**Background music.** Very quiet ambient music plays while the player is in the maze:
+
+- **Synthesized too.** No audio file and no base64 audio, for the same reason as the scream: the
+  bundle stays one self-contained file with zero external requests.
+- `MUSIC_GAIN` is at most `0.06`, against the scream's `PEAK_GAIN` of `0.45`. It is meant to sit at
+  the edge of hearing and set unease, never to be listened to. It must be quiet enough that the
+  scream is still a shock and not merely the next loud thing.
+- A sustained drone rather than a melody or a loop: low detuned oscillators through a lowpass, with
+  slow LFOs moving the filter and the gain so it breathes without ever restarting. No timers, no
+  scheduling loop, and no loop point to hear.
+- It plays during `playing` and continues through `levelup`, so the handover between levels is not
+  punctuated by silence.
+- **It stops the instant the phase becomes `scare`**, before the scream is scheduled. The scream
+  landing into sudden silence is the contrast the whole app is built around, and music bleeding under
+  it would blunt exactly that.
+- Starting it twice must not stack a second voice, and stopping ramps down rather than clicking off.
+- Like the scream, it fails silently: music that cannot start must never block the jumpscare or throw
+  into the animation loop.
 
 Sound design, four layers scheduled at once over the 4 seconds, no timers:
 
@@ -400,7 +453,11 @@ are readable in one place.
 - **The deployment's header policy never carries `script-src` or `style-src`**, which would blank the
   app by intersecting away the bundle's own hashes.
 - **No flashes** in the jumpscare styles.
-- **No exit marker and no HUD** during `playing`.
+- **No HUD** during `playing`, and **the exit is never visible from outside the fog radius**. The
+  marker exists, but a player who has not reached its neighbourhood cannot see where it is.
+- **Music never overlaps the scream.** It is stopped before the scream is scheduled.
+- **Every level is played, in order.** There is no level select, no skip, and no way to reach the
+  scare without finishing HARD.
 - The warning text appears verbatim in the bundle.
 - `SCREAM_DURATION < SCARE_DURATION`.
 - `blobRadius / 2 < exitRadius` at every level, so a moving blob cannot skip the exit.

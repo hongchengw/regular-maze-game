@@ -16,16 +16,36 @@ returns to the START screen.
 
 | Area | Decision |
 | --- | --- |
-| Desktop controls | WASD and arrow keys only. The mouse is used solely to click the START and difficulty buttons, never during gameplay. |
+| Desktop controls | WASD and arrow keys only. The mouse is used solely to click the START button, never during gameplay. |
 | Touch controls | On-screen 4-button D-pad. Multi-touch two buttons for diagonals. |
 | Movement | Continuous glide at constant speed while a direction is held. Diagonals normalized. |
 | Collision | Swept in sub-steps along each frame's movement so fast motion cannot tunnel a wall. |
-| On collision | Same maze layout, blob returns to the start cell. Nothing persists across sessions. |
+| On collision | The wall blocks the blocked axis and the blob slides along the wall. It is never moved back to the start. |
+| Progression | All three levels are played in order, EASY then MEDIUM then HARD, separated by a one-second `LEVEL n OF 3` beat. There is no level select. Only the exit of HARD fires the scare. |
+| Exit | Marked with a slowly pulsing marker, drawn inside the fog so it is invisible until the player is near it. |
 | Maze | Seeded perfect maze from a recursive backtracker. Fresh seed per play, deterministic under a fixed seed. |
-| Jumpscare | User-supplied `assets/jumpscare.png` fullscreen for exactly 10s, synthesized scream for 4s. No flashes, no text, no buttons, nothing else on screen. |
+| Audio during play | Very quiet synthesized ambient music, stopped the instant the scare begins. No other sound effects. |
+| Jumpscare | User-supplied `assets/jumpscare.jpg` fullscreen for exactly 10s, synthesized scream for 4s. No flashes, no text, no buttons, nothing else on screen. |
 | After jumpscare | Overlay removed at 10s, app instantly back at the START screen. There is no "YOU GOT PRANKED" screen and no PLAY AGAIN button. |
 | Assets | Inlined as base64 data URIs. `dist/index.html` is one self-contained file with zero external requests. |
 | Dependencies | None. No runtime deps, no dev deps. Tests use the built-in `node:test` runner. |
+
+### Decisions changed after QA (2026-07-30)
+
+The table above is current. These four rows previously said the opposite, and were changed by the
+user after play-testing the finished game. They are recorded rather than silently overwritten,
+because tasks 01 to 10 were executed against the originals and their briefs still describe them.
+
+| Area | Was | Now | Why |
+| --- | --- | --- | --- |
+| On collision | Blob returns to the start cell | Blocks and slides along the wall | A single graze restarting a 24x24 blind maze was punishing rather than tense |
+| Progression | Player picks one difficulty and plays it | All three levels in order, then the scare | Every player should see the whole game before the payload |
+| Exit | Never marked, since marking leaks the goal | Marked, but only visible from within the fog | Reaching the exit gave no signal that anything had been achieved |
+| Audio during play | Silent, so the scare lands harder | Very quiet ambient music, cut at the scare | Silence read as the game being broken rather than tense |
+
+The reasoning behind the originals still holds and is why each replacement is narrow: the exit marker
+is invisible until you are on top of it, and the music is quiet enough and stops early enough that
+the scream still lands in silence.
 
 ## Coordinate model
 
@@ -65,10 +85,12 @@ testing must be importable in plain Node.
 ## Phase machine
 
 ```
-title --START--> select --difficulty--> playing --exit reached--> scare --10s--> title
-                                          ^                                        |
-                                          +--------- wall hit: pos = start --------+
+title --START--> playing(EASY) --exit--> levelup --1s--> playing(MEDIUM) --exit--> levelup --1s-->
+playing(HARD) --exit--> scare --10s--> title
 ```
+
+A wall no longer changes the phase or the position: it blocks the axis being pressed into it and the
+blob slides along it.
 
 ## Process rules
 
@@ -119,3 +141,20 @@ title --START--> select --difficulty--> playing --exit reached--> scare --10s-->
 
 Critical path: 01 -> 02 -> 03 -> 05 -> 06 -> 10. Task 04 and task 08 can be done any time after 01.
 The app is only playable end to end after task 10.
+
+### QA changes (tasks 11 to 15)
+
+Tasks 01 to 10 shipped the game. These five come from play-testing it and are specified in `SPEC.md`
+before any of them is executed, so the code trails the spec until they are done.
+
+| Task | File | Depends on | Changes |
+| --- | --- | --- | --- |
+| 11 | `task-11-wall-block.md` | 10 | Walls block and are slid along instead of resetting to the start |
+| 12 | `task-12-fog-widen.md` | 10 | `fogRadius` up to 2.4 / 1.8 / 1.3 |
+| 13 | `task-13-level-progression.md` | 10 | Three levels in order, `levelup` beat, select screen removed |
+| 14 | `task-14-exit-marker.md` | 13 | Pulsing exit marker, visible only within the fog |
+| 15 | `task-15-ambient-music.md` | 13 | Very quiet synthesized music during play |
+
+Tasks 11 and 12 are independent of each other and of 13. Task 14 depends on 13 only because it draws
+into a level flow that 13 reshapes; task 15 depends on 13 for the phase it starts and stops on. Doing
+them in numerical order is the simple choice.
