@@ -12,9 +12,10 @@ this file and a brief disagree, the brief is right and this file is the bug.
 A blind maze game whose real payload is a jumpscare.
 
 The player glides a small blob from the top-left of a maze to the bottom-right. Only a small
-fog-of-war circle around the blob is visible; the rest of the screen is black. Touching a wall sends
-the blob back to the start cell of the same maze. Reaching the exit fires a fullscreen jumpscare
-image for 10 seconds with a 4-second scream, after which the app returns to the title screen.
+fog-of-war circle around the blob is visible; the rest of the screen is black. Touching a wall blocks
+the blob on that axis and it slides along the wall. Finishing all three mazes fires a fullscreen
+jumpscare image for 6 seconds, with the supplied scare sound under it, after which the app returns to
+the title screen.
 
 The title screen carries the app's only forewarning: `WARNING: Not suitable for those sensitive to
 sudden sounds or visuals.` It must never be removed.
@@ -38,9 +39,10 @@ There is **no difficulty select screen**. The three levels are played in order (
 is nothing to choose. Naming the levels on a menu would also have given away that the game is about
 the fog.
 
-> Sections 2, 8, 9, 10, and 12 describe behaviour agreed after QA and specified ahead of the code.
-> Until `tasks/task-11` through `tasks/task-15` are executed, the code implements the previous
-> behaviour and is, per the rule at the top of this file, the bug.
+> Sections 3, 4, 9, 12, and 13 describe a second round of behaviour agreed after QA and specified
+> ahead of the code. Until `tasks/task-16` through `tasks/task-18` are executed, the code implements
+> the previous behaviour and is, per the rule at the top of this file, the bug. The first round,
+> tasks 11 to 15, has been executed and the code matches it.
 
 ## 3. Build and distribution
 
@@ -78,6 +80,12 @@ tampered or accidentally corrupted bundle refuses to execute rather than running
 `frame-ancestors` is absent from this policy only because it is ignored in a `<meta>` policy. It is
 sent as a real response header instead, where a host allows one (see below).
 
+**There is no `media-src`, deliberately.** The scare sound ships inlined like the image, but it is
+never loaded as media: the base64 is decoded in JavaScript and handed to `decodeAudioData`, so no
+element ever fetches it and the policy needs no directive for it (section 12). An `<audio src="data:...">`
+would have required one, and the extra directive would have been the only thing in the policy that
+existed to permit loading something.
+
 ## 3a. Deployment
 
 The artifact is a static file, so any host that can serve one will do. `vercel.json` configures the
@@ -107,15 +115,24 @@ the artifact, which is the only thing that knows them.
 
 ## 4. Assets
 
-`assets/jumpscare.jpg` is supplied by the user and is the real scare image, not a placeholder.
+Two files are supplied by the user and both are real, not placeholders:
 
-Replacing that file and rerunning `npm run build` is the entire swap procedure. The **media type of
-the data URI is derived from the file's extension**, so swapping in a different format is also just a
-file swap: `.png`, `.jpg`/`.jpeg`, `.webp`, `.gif`, and `.avif` are recognised. An unrecognised
+| File | Role |
+| --- | --- |
+| `assets/jumpscare.jpg` | the scare image, section 13 |
+| `assets/regular_sound.mp3` | the scare sound, section 12 |
+
+Both are inlined as base64 data URIs. Replacing either file and rerunning `npm run build` is the
+entire swap procedure. The **media type of the data URI is derived from the file's extension**, so
+swapping in a different format is also just a file swap: `.png`, `.jpg`/`.jpeg`, `.webp`, `.gif`, and
+`.avif` for the image, and `.mp3`, `.ogg`, `.wav`, and `.m4a` for the sound. An unrecognised
 extension fails the build with the offending path, rather than emitting a data URI whose declared
 type is a guess the browser will refuse to decode.
 
-No audio file ships. The scream is synthesized at runtime (section 12).
+**The sound dominates the bundle size.** 113 KB of mp3 is about 155 KB of base64, taking
+`dist/index.html` from roughly 53 KB to roughly 208 KB. That is the price of the
+zero-external-requests rule in section 3 and it is paid knowingly: one file that works offline, from
+the filesystem, and with no second round trip before the scare can fire.
 
 ## 5. Coordinate model
 
@@ -210,7 +227,7 @@ Derived facts and invariants:
 
 ```
 title --START--> playing(EASY) --exit--> levelup --1s--> playing(MEDIUM) --exit--> levelup --1s-->
-playing(HARD) --exit--> scare --after 10s--> title
+playing(HARD) --exit--> scare --after 6s--> title
 ```
 
 **The three levels are played in order, every time.** There is no level select and no way to skip
@@ -242,7 +259,7 @@ subsequent level's seed is derived from the previous one. This keeps `step` free
 `performance`, and `Math.random`, which is what lets the whole three-level run be replayed from a
 single starting seed in a test.
 
-Constants: `MAX_DT = 0.05` seconds, `SCARE_DURATION = 10` seconds, `LEVELUP_DURATION = 1` second.
+Constants: `MAX_DT = 0.05` seconds, `SCARE_DURATION = 6` seconds, `LEVELUP_DURATION = 1` second.
 
 Movement rules:
 
@@ -365,17 +382,30 @@ Frame cost rules, which exist because this runs on phones:
 
 ## 12. Audio
 
-- The scare sound is **synthesized with the Web Audio API**. No audio file, no base64 audio blob.
-- `SCREAM_DURATION` is exactly **4.0 seconds**, ending in silence, while the image stays up for
-  `SCARE_DURATION` (10 seconds). The last 6 seconds are deliberately silent: the image lingering in
-  silence is more unsettling than a looping noise. `SCREAM_DURATION < SCARE_DURATION` always holds.
+- The scare sound is **`assets/regular_sound.mp3`**, supplied by the user and inlined as a base64
+  data URI (section 4). It is 4.83 seconds long today.
+- **It is played through the Web Audio API, not through an `<audio>` element.** The base64 is decoded
+  in JavaScript and handed to `decodeAudioData`, and the resulting `AudioBuffer` is played through a
+  `BufferSource`. Three things follow from that and all three are the reason for it: the bundle's CSP
+  needs no `media-src` (section 3), no `fetch` or `XMLHttpRequest` appears anywhere, and the sound is
+  gated behind the same unlocked context the music already uses.
+- The buffer is decoded **once**, inside `unlock()` on the START gesture, and cached for the rest of
+  the session. Decoding takes milliseconds and the player is minutes away from the scare, so the
+  sound is always ready. If it is somehow not, the visual scare runs without it.
+- `SCREAM_DURATION` is **5.0 seconds** and is a **ceiling, not a length**: the source is scheduled to
+  stop at `startTime + SCREAM_DURATION` whatever the file's own duration is. A longer file swapped in
+  later is cut rather than allowed to outlive the image. `SCREAM_DURATION < SCARE_DURATION` always
+  holds, so the image always ends in silence.
 - Peak output is capped by a master gain of `PEAK_GAIN = 0.45` (at most 0.5), with a
-  `DynamicsCompressor` before the destination as a safety limiter. Startling, not damaging.
+  `DynamicsCompressor` before the destination as a safety limiter. Startling, not damaging. This is
+  the same ceiling the previous synthesized scream had, so a hot-mastered file cannot come out louder
+  than the sound it replaced.
 - Nothing is scheduled before the start time and nothing outlives `startTime + SCREAM_DURATION`.
 - The `AudioContext` is created **inside the START click handler**, because browsers block audio
   started outside a user gesture. `unlock()` is safe to call repeatedly.
-- If the Web Audio API is unavailable or the context fails to resume, the visual scare still runs.
-  Audio failure never blocks the jumpscare and never throws into the animation loop.
+- If the Web Audio API is unavailable, the context fails to resume, or the file fails to decode, the
+  visual scare still runs. Audio failure never blocks the jumpscare and never throws into the
+  animation loop.
 - The title screen is silent, and wall contact makes no sound. There are no other sound effects of
   any kind.
 
@@ -398,26 +428,28 @@ Frame cost rules, which exist because this runs on phones:
 - Like the scream, it fails silently: music that cannot start must never block the jumpscare or throw
   into the animation loop.
 
-Sound design, four layers scheduled at once over the 4 seconds, no timers:
+The scare graph is deliberately short, since the sound's character now comes from the file rather
+than from the code:
 
-| Layer | Description | Envelope |
-| --- | --- | --- |
-| Impact | Short white-noise burst through a lowpass sweeping 8 kHz down to 200 Hz | 0 to 0.25s, sharp attack |
-| Scream body | Two `sawtooth` oscillators detuned about 15 cents, gliding 1200 Hz down to 180 Hz | 0.02s attack, hold to 2.8s, decay to 3.4s |
-| Grit | Bandpass-filtered white noise tracking the scream's pitch | Follows the scream, lower gain |
-| Sub | Sine at 55 Hz for chest weight | 0 to 1.2s, slow decay |
+```
+BufferSource -> master gain (PEAK_GAIN) -> DynamicsCompressor -> destination
+```
 
-A small convolver with a procedurally generated 1.5s noise impulse response may add a tail. It is
-the one optional layer and is dropped rather than replaced with an asset. Noise buffers are generated
-once and reused.
+There is no synthesis left in it: no oscillators, no noise buffers, and no envelope scheduling. The
+only oscillators the app creates are the ambient music's.
 
 ## 13. Jumpscare
 
 - The image is `assets/jumpscare.jpg`, inlined as a base64 data URI. It is preloaded at app startup,
   not on show, so the first frame is never blank.
-- It covers the **entire screen**: fixed position, full viewport, `object-fit: cover`, black behind
-  it so any letterboxing reads as black.
-- Duration is exactly 10 seconds, then the overlay is removed and the app is at the title screen
+- It covers the **entire screen**: fixed position, full viewport, `object-fit: fill`, black behind it
+  in case the element is ever smaller than the viewport.
+- **`fill`, not `cover`, so the whole image is always on screen.** `cover` fills the viewport by
+  cropping whichever axis overflows, which on a phone in portrait cut most of the picture away.
+  `fill` stretches instead, and the distortion that comes with it is accepted deliberately: seeing
+  all of the image matters more than its proportions for the fraction of a second it lands in. Do not
+  "correct" this back to `cover` or to `contain`, which would letterbox.
+- Duration is exactly 6 seconds, then the overlay is removed and the app is at the title screen
   **instantly**. No fade, no transition, no intermediate screen.
 - **No flashes.** The image appears once and holds perfectly still. No strobing, shaking, jitter,
   opacity animation, scale animation, or filter animation. This is a hard requirement, not a
@@ -428,7 +460,8 @@ once and reused.
   screen element is hidden, not merely covered.
 - **There is no "YOU GOT PRANKED" screen and no PLAY AGAIN button.** The app returns straight to the
   title screen, whose START button is the replay path.
-- The scream starts with the image and runs 4 seconds, leaving 6 seconds of silent image.
+- The sound starts with the image and runs 4.83 seconds, leaving just over a second of silent image.
+  It is capped at `SCREAM_DURATION` either way, so the image always outlasts it (section 12).
 - The 10-second timing is owned by `step`, not by a `setTimeout` in the overlay. The overlay is
   purely a function of `state.phase`, so there is one clock, no drift, and no orphaned timer.
 - After the return to title the app is in its initial state, identical to a fresh `createGame()`.
@@ -443,7 +476,9 @@ are readable in one place.
   in `src/`. No scores, no settings, no progress.
 - **Never networks.** No `fetch`, no `XMLHttpRequest`, no `http://` or `https://` in the bundle.
   Opening `dist/index.html` shows only the document itself in the Network tab. The Content-Security-
-  Policy in section 3 enforces this at runtime as well as in the tests.
+  Policy in section 3 enforces this at runtime as well as in the tests. The scare sound is not an
+  exception: its bytes are decoded out of a string already in the document, so nothing is requested
+  to play it and the policy needs no `media-src`.
 - **Never breaks out of its own blocks.** No inlined source can terminate the `<script>` or `<style>`
   block that carries it. The bundle's inline script and style match the CSP hashes that ship with it.
 - **Never trusts an inherited key.** Every lookup of a caller-supplied string against a map checks
@@ -459,7 +494,8 @@ are readable in one place.
 - **Every level is played, in order.** There is no level select, no skip, and no way to reach the
   scare without finishing HARD.
 - The warning text appears verbatim in the bundle.
-- `SCREAM_DURATION < SCARE_DURATION`.
+- `SCREAM_DURATION < SCARE_DURATION`, now 5 against 6, so the image always ends in silence however
+  long the supplied sound file happens to be.
 - `blobRadius / 2 < exitRadius` at every level, so a moving blob cannot skip the exit.
 - `blobRadius + wallHalfThickness < 0.5` at every level, so every corridor is passable.
 - Every `src/*.js` module appears in the bundle, so a module dropping out of the import graph fails

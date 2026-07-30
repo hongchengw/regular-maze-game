@@ -2,6 +2,62 @@
 
 Newest first. One entry per completed task.
 
+## Docs - Specify the second round of QA changes and add their task briefs - 2026-07-30 05:49 AM EDT
+
+Documentation only. **No source, test, or build file was touched and nothing was implemented.** A
+second round of play testing produced three changes, all in the jumpscare payload; they are specified
+here first and executed later, which is the repo's normal spec-first order.
+
+**Read this before reading a green test run as agreement:** the code now knowingly trails `SPEC.md`
+again. `npm test` still passes with 165 cases because the tests match the code, and both now describe
+the previous behaviour until tasks 16 to 18 are executed. Per the rule at the top of `SPEC.md`, the
+code is the bug.
+
+**Added**
+- `tasks/task-16-scare-duration.md`: `SCARE_DURATION` from 10s to 6s. 5 test cases, and the rule that
+  exactly one of them may state the number while every other derives from the constant, so the next
+  retune is one line plus one pinned assertion.
+- `tasks/task-17-scare-sound-file.md`: `assets/regular_sound.mp3` replaces the synthesized scream.
+  12 test cases across `tests/audio.test.js` and `tests/build.test.js`, including the ear-safety cap,
+  the ceiling that stops a longer file outliving the image, and a case asserting the scare
+  synthesizes nothing at all so the four layers cannot creep back.
+- `tasks/task-18-jumpscare-fill.md`: `object-fit: cover` becomes `fill`. 4 cases, two of them
+  existing ones that must still pass.
+- `tasks/README.md`: a second "Decisions changed after QA" table and a tasks 16 to 18 execution order
+  table. The first table is unchanged, since tasks 09 and 10 were executed against the originals and
+  their briefs still describe them.
+
+**Changed**
+- `SPEC.md` section 1: the overview's 10 seconds and 4-second scream become 6 seconds and the
+  supplied sound. Also corrects a line left stale by task 11, which still said a wall sends the blob
+  back to the start cell.
+- `SPEC.md` section 3: records that the policy carries no `media-src` and why. The sound is decoded
+  out of a string already in the document rather than loaded by an element, so nothing requests it.
+- `SPEC.md` section 4: both assets now ship, with the audio extensions the build recognises, and the
+  bundle size this costs, roughly 53 KB to roughly 208 KB.
+- `SPEC.md` section 9: the diagram's `--after 10s-->` and the constants line's `SCARE_DURATION = 10`.
+- `SPEC.md` section 12: the four-layer sound design table is replaced by the sample design, the
+  decode-once-on-unlock rule, and `SCREAM_DURATION` redefined as a 5-second **ceiling** rather than
+  the sound's length. The ambient music subsection is untouched.
+- `SPEC.md` section 13: 10 seconds becomes 6, `object-fit: cover` becomes `fill` with the distortion
+  recorded as deliberate, and the scream bullet becomes the file.
+- `SPEC.md` section 14: `SCREAM_DURATION < SCARE_DURATION` is now 5 against 6, and "never networks"
+  states that the inlined sound is not an exception to it.
+- The note pinning which sections run ahead of the code now names sections 3, 4, 9, 12, and 13 and
+  tasks 16 to 18, and records that the first round has landed.
+
+**Deleted**
+- `SPEC.md` section 12's four-layer sound design table, and the optional convolver tail with it.
+
+**Notes**
+- The mp3 was read rather than assumed: MPEG-1 Layer III, 192 kbps CBR, 44.1 kHz stereo, 116,120
+  bytes, 4.83 seconds. That it fits inside a 6-second image with room to spare is what lets
+  `SCREAM_DURATION` stay a ceiling and the image keep ending in silence.
+- `assets/regular_sound.mp3` is deliberately **not** committed here. Task 17 adds it, so the asset
+  arrives with the code that reads it.
+- Confirmed with the user before writing task 17: the file replaces the synthesized scream rather
+  than layering with it or falling back to it.
+
 ## Task 15 - Ambient music - 2026-07-30 05:01 AM EDT
 
 **This completes the QA changes from tasks 11 to 15.** The maze now has a quiet synthesized drone
