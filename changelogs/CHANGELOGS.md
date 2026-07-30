@@ -2,6 +2,37 @@
 
 Newest first. One entry per completed task.
 
+## Task 12 - Wider fog radius - 2026-07-30 04:47 AM EDT
+
+A tuning change and nothing else: the player sees slightly more of the maze at every difficulty. No
+new code, no new function, three numbers.
+
+**Added**
+- `tests/difficulty.test.js`: `fog radius matches the spec table`, pinning `fogRadius` to exactly
+  2.4, 1.8, and 1.3 rather than only their ordering, so the fog cannot be retuned silently without
+  `SPEC.md` section 8 moving in the same commit.
+- `tests/difficulty.test.js`: `a wider fog does not reveal the exit early`, asserting
+  `fogRadius * 4 < distance(start, exit)` at every level. The point of this change is visibility and
+  the point of the game is that the exit is not visible, so one is bounded against the other. This is
+  the `SPEC.md` section 14 invariant asserted mechanically.
+
+**Changed**
+- `src/difficulty.js`: `fogRadius` 2.2 to 2.4 (EASY), 1.6 to 1.8 (MEDIUM), and 1.1 to 1.3 (HARD).
+  Roughly 140 px, 68 px, and 32 px on a 900 px tall viewport.
+
+**Deleted**
+- Nothing.
+
+**Notes**
+- `blobRadius`, `speed`, and `exitRadius` were deliberately not adjusted to compensate. If the game
+  now feels too easy that is a separate tuning decision with its own spec change.
+- The three existing invariants still hold at the new values: 2.4 > 1.8 > 1.3, `fogRadius >
+  blobRadius * 2` at every level (tightest at HARD, 1.3 against 0.44), and the exit stays well
+  outside the disc.
+- Red run observed first: `fog radius matches the spec table` failed on 2.2 against 2.4. The other
+  three fog cases passed before and after, which is the point of pinning the values.
+- 144 cases pass, up from 142. `node build/build.js` rebuilt `dist/index.html`.
+
 ## Task 11 - Walls block and slide - 2026-07-30 04:46 AM EDT
 
 The first of the five QA changes. Touching a wall now costs the player their momentum on the blocked

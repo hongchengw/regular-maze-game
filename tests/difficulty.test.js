@@ -42,6 +42,14 @@ test('grid size increases with difficulty', () => {
   assert.ok(easy.rows < medium.rows && medium.rows < hard.rows, 'rows should increase');
 });
 
+test('fog radius matches the spec table', () => {
+  // Pinned values rather than only their ordering, so the fog cannot be retuned silently without
+  // SPEC.md section 8 being updated in the same commit.
+  assert.equal(DIFFICULTY.EASY.fogRadius, 2.4);
+  assert.equal(DIFFICULTY.MEDIUM.fogRadius, 1.8);
+  assert.equal(DIFFICULTY.HARD.fogRadius, 1.3);
+});
+
 test('fog radius decreases with difficulty', () => {
   const [easy, medium, hard] = ordered();
   assert.ok(easy.fogRadius > medium.fogRadius && medium.fogRadius > hard.fogRadius);
@@ -69,6 +77,20 @@ test('fog is wide enough to see a corridor', () => {
     assert.ok(
       level.fogRadius > level.blobRadius * 2,
       `${name} fog is too tight to show the passage the blob occupies`,
+    );
+  }
+});
+
+test('a wider fog does not reveal the exit early', () => {
+  // The point of the widening is visibility; the point of the game is that the exit is not visible.
+  // This bounds one against the other, and is SPEC.md section 14 asserted mechanically.
+  for (const name of LEVELS) {
+    const level = DIFFICULTY[name];
+    const startToExit = Math.hypot(level.cols - 1, level.rows - 1);
+
+    assert.ok(
+      level.fogRadius * 4 < startToExit,
+      `${name} fog of ${level.fogRadius} is not far enough inside the ${startToExit.toFixed(1)} cells to the exit`,
     );
   }
 });
