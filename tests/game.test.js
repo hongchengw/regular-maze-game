@@ -2,14 +2,34 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { DIFFICULTY } from '../src/difficulty.js';
+import { hitsWall } from '../src/collision.js';
 import { createGame, pressStart, startLevel, step, MAX_DT, SCARE_DURATION } from '../src/game.js';
 
 const NO_INPUT = { dx: 0, dy: 0 };
 const RIGHT = { dx: 1, dy: 0 };
+const LEFT = { dx: -1, dy: 0 };
+const DOWN_LEFT = { dx: -1, dy: 1 };
 
 /** A playing state on `levelName` with the walls removed, to isolate movement from the maze. */
 function openField(levelName = 'EASY', seed = 1) {
   return { ...startLevel(pressStart(createGame()), levelName, seed), segments: [] };
+}
+
+/**
+ * A playing state whose only wall is the vertical line x = 0, so pressing left is blocked while y
+ * stays free. One wall keeps the sliding cases about the sweep rather than about whichever corridor
+ * a seed happened to carve.
+ */
+function walledField(levelName = 'EASY') {
+  const state = startLevel(pressStart(createGame()), levelName, 1);
+  return { ...state, segments: [{ x1: 0, y1: -1, x2: 0, y2: 99 }] };
+}
+
+/** The same field with the blob already pressed up against that wall under `input`. */
+function settled(input, levelName = 'EASY') {
+  let state = walledField(levelName);
+  for (let i = 0; i < 40; i += 1) state = step(state, MAX_DT, input);
+  return state;
 }
 
 /** Run `total` seconds through `step` in `MAX_DT` slices, so the clamp never truncates them. */
@@ -126,16 +146,6 @@ test('movement is frame-rate independent', () => {
   assert.ok(distance(coarse.pos, fine.pos) < 1e-9, 'two half steps must land where one full step does');
 });
 
-test('large dt does not tunnel', () => {
-  // A deliberately absurd speed, so even the clamped dt covers several cells in one step.
-  const state = startLevel(pressStart(createGame()), 'EASY', 5);
-  const fast = { ...state, level: { ...state.level, speed: 100 } };
-  const next = step(fast, 2.0, { dx: 0, dy: 1 });
-
-  assert.equal(next.hits, 1, 'a five-cell plunge through a 10x10 maze must report a wall hit');
-  assert.deepEqual(next.pos, state.start, 'and therefore reset to the start cell');
-});
-
 test('dt is clamped', () => {
   const state = openField('EASY');
   const catchUp = step(state, 5.0, RIGHT);
@@ -146,32 +156,82 @@ test('dt is clamped', () => {
   );
 });
 
-// --- Reset and exit ----------------------------------------------------------------------------
+// --- Wall contact and exit -----------------------------------------------------------------------
 
-test('wall hit resets to start', () => {
-  const state = startLevel(pressStart(createGame()), 'EASY', 5);
-  const hard = { ...state, level: { ...state.level, speed: 100 } };
-  const next = step(hard, MAX_DT, { dx: 0, dy: 1 });
+test('a wall never sends the blob back to the start', () => {
+  const open = walledField();
+  const contact = open.level.blobRadius + open.level.wallHalfThickness;
+  let state = open;
 
-  assert.deepEqual(next.pos, { x: 0.5, y: 0.5 });
+  for (let i = 0; i < 60; i += 1) {
+    state = step(state, MAX_DT, LEFT);
+    assert.notDeepEqual(state.pos, state.start, `frame ${i + 1} teleported the blob back to the start`);
+  }
+
+  assert.ok(state.pos.x >= contact, 'the blob never crosses into the wall');
+  assert.ok(
+    state.pos.x - contact <= open.level.blobRadius / 2,
+    'and comes to rest against it, within one sub-step',
+  );
 });
 
-test('wall hit preserves the maze', () => {
-  const state = startLevel(pressStart(createGame()), 'EASY', 5);
-  const hard = { ...state, level: { ...state.level, speed: 100 } };
-  const next = step(hard, MAX_DT, { dx: 0, dy: 1 });
+test('a blocked axis still moves on the other', () => {
+  const state = settled(DOWN_LEFT);
+  const next = step(state, MAX_DT, DOWN_LEFT);
+  // A diagonal is normalized, so each axis carries speed * dt / sqrt(2).
+  const perAxis = (DIFFICULTY.EASY.speed * MAX_DT) / Math.SQRT2;
 
-  assert.ok(next.hits > 0, 'fixture check: this step should actually hit a wall');
-  assert.deepEqual(next.segments, state.segments, 'the layout must survive, so the mental map does');
-  assert.equal(next.seed, state.seed, 'the seed is not regenerated on a hit');
+  assert.equal(next.pos.x, state.pos.x, 'the blocked axis must not move');
+  assert.ok(
+    Math.abs(next.pos.y - (state.pos.y + perAxis)) < 1e-9,
+    'the free axis keeps its full speed, which is what makes the blob slide along the wall',
+  );
+  assert.equal(next.hits, state.hits + 1, 'the frame still counts as blocked');
 });
 
-test('wall hit increments the counter', () => {
-  const state = startLevel(pressStart(createGame()), 'EASY', 5);
-  const hard = { ...state, level: { ...state.level, speed: 100 } };
+test('a head-on press moves on neither axis', () => {
+  const state = settled(LEFT);
+  assert.deepEqual(step(state, MAX_DT, LEFT).pos, state.pos);
+});
 
-  assert.equal(state.hits, 0);
-  assert.equal(step(hard, MAX_DT, { dx: 0, dy: 1 }).hits, 1);
+test('sliding cannot tunnel', () => {
+  // A deliberately absurd speed, so even the clamped dt covers several cells in one step.
+  const state = startLevel(pressStart(createGame()), 'EASY', 5);
+  const fast = { ...state, level: { ...state.level, speed: 100 } };
+  const next = step(fast, 2.0, { dx: -1, dy: -1 });
+  const { blobRadius, wallHalfThickness } = state.level;
+
+  assert.equal(next.hits, 1, 'a five-cell plunge into the corner must report a blocked frame');
+  assert.ok(
+    !hitsWall(next.pos.x, next.pos.y, blobRadius, state.segments, wallHalfThickness),
+    'per-axis sweeping must not weaken collision: the blob ends clear of every wall',
+  );
+  assert.ok(next.pos.x > 0 && next.pos.y > 0, 'and inside the maze, not on the far side of the border');
+  assert.ok(next.pos.x < state.maze.cols && next.pos.y < state.maze.rows);
+});
+
+test('the maze survives contact', () => {
+  const before = walledField();
+  let state = before;
+  for (let i = 0; i < 30; i += 1) state = step(state, MAX_DT, LEFT);
+
+  assert.ok(state.hits > 0, 'fixture check: the wall should actually have blocked the blob');
+  assert.deepEqual(state.segments, before.segments, 'the layout must survive, so the mental map does');
+  assert.equal(state.seed, before.seed, 'the seed is not regenerated on contact');
+  assert.equal(state.levelName, before.levelName);
+  assert.deepEqual(state.maze, before.maze);
+});
+
+test('hits counts blocked frames', () => {
+  const state = settled(LEFT);
+
+  assert.equal(step(state, MAX_DT, LEFT).hits, state.hits + 1, 'a blocked frame counts');
+  assert.equal(step(state, MAX_DT, RIGHT).hits, state.hits, 'a clear frame does not');
+});
+
+test('contact changes no phase', () => {
+  const state = settled(LEFT);
+  assert.equal(step(state, MAX_DT, LEFT).phase, 'playing', 'contact is not a loss and not an ending');
 });
 
 test('exit within radius wins', () => {

@@ -1,5 +1,5 @@
-// The whole game as pure functions over a plain state object: phases, movement, reset on a wall
-// hit, and exit detection.
+// The whole game as pure functions over a plain state object: phases, movement, wall contact, and
+// exit detection.
 //
 // Nothing here knows about the DOM, the canvas, audio, or the clock. It receives `dt` and an input
 // vector and returns the next state, which is what makes the game testable in plain Node.
@@ -72,27 +72,32 @@ function direction(input) {
   return length > 1 ? { dx: input.dx / length, dy: input.dy / length } : { dx: input.dx, dy: input.dy };
 }
 
-/** One frame of playing: glide, resolve the move by sweeping, then test the exit. */
+/** One frame of playing: glide one axis at a time, then test the exit on where the blob ended up. */
 function stepPlaying(state, dt, input) {
   const { level, pos, segments } = state;
   const dir = direction(input);
+  const vx = dir.dx * level.speed * dt;
+  const vy = dir.dy * level.speed * dt;
 
-  const to = {
-    x: pos.x + dir.dx * level.speed * dt,
-    y: pos.y + dir.dy * level.speed * dt,
-  };
-  const move = sweep(pos, to, level.blobRadius, segments, level.wallHalfThickness);
+  // Each axis is swept on its own, x first, so a wall blocks only the axis pressed into it and the
+  // blob slides along it. `sweep` returns the last clear position, which is exactly the
+  // blocked-but-not-teleported position this wants. Contact costs momentum and nothing else: the
+  // maze, the seed, and the position are all untouched, so the player keeps their mental map.
+  //
+  // Resolving x before y biases a diagonal into a corner by well under a pixel at these speeds, so
+  // there is no second pass to even it out.
+  const r = level.blobRadius;
+  const halfThickness = level.wallHalfThickness;
+  const slidX = sweep(pos, { x: pos.x + vx, y: pos.y }, r, segments, halfThickness);
+  const slidY = sweep(slidX.pos, { x: slidX.pos.x, y: slidX.pos.y + vy }, r, segments, halfThickness);
 
-  // A hit costs the blob its progress but never the maze: the layout and seed are untouched, so
-  // the player keeps the mental map they built.
-  if (move.hit) {
-    return { ...state, pos: { ...state.start }, hits: state.hits + 1 };
-  }
+  const moved = slidY.pos;
+  const reached = Math.hypot(moved.x - state.exit.x, moved.y - state.exit.y) < level.exitRadius;
 
-  const reached = Math.hypot(move.pos.x - state.exit.x, move.pos.y - state.exit.y) < level.exitRadius;
   return {
     ...state,
-    pos: move.pos,
+    pos: moved,
+    hits: state.hits + (slidX.hit || slidY.hit ? 1 : 0),
     phase: reached ? 'scare' : state.phase,
     scareElapsed: 0,
   };

@@ -81,21 +81,21 @@ test('a second playthrough works', () => {
   assert.deepEqual(second.pos, { x: 0.5, y: 0.5 });
 });
 
-test('wall hits do not change the layout mid-run', () => {
+test('wall contact does not change the layout mid-run', () => {
   let state = startLevel(pressStart(createGame()), 'EASY', 2026);
   const layout = state.segments;
 
-  // Drive straight up into the solid outer border five times.
-  for (let i = 0; i < 5; i += 1) {
-    let before = state.hits;
-    while (state.hits === before) state = step(state, FRAME, { dx: 0, dy: -1 });
+  // Drive straight up into the solid outer border and keep pressing.
+  for (let i = 0; i < 40; i += 1) {
+    state = step(state, FRAME, { dx: 0, dy: -1 });
 
-    assert.deepEqual(state.segments, layout, `the maze changed after hit ${i + 1}`);
-    assert.equal(state.seed, 2026, 'the seed is never regenerated on a hit');
-    assert.deepEqual(state.pos, state.start, 'the blob returns to the start cell centre');
+    assert.deepEqual(state.segments, layout, `the maze changed on frame ${i + 1}`);
+    assert.equal(state.seed, 2026, 'the seed is never regenerated on contact');
   }
 
-  assert.equal(state.hits, 5);
+  assert.ok(state.hits > 0, 'fixture check: the border should have blocked the blob');
+  assert.ok(state.pos.y < state.start.y, 'the blob rests against the border rather than back at the start');
+  assert.equal(state.phase, 'playing');
 });
 
 test('no module touches persistence', () => {

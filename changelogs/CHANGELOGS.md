@@ -2,6 +2,49 @@
 
 Newest first. One entry per completed task.
 
+## Task 11 - Walls block and slide - 2026-07-30 04:46 AM EDT
+
+The first of the five QA changes. Touching a wall now costs the player their momentum on the blocked
+axis and nothing else: the blob stops against the wall, keeps moving on the other axis so it slides
+along it, and is never teleported back to the start cell.
+
+**Added**
+- `tests/game.test.js`: two fixtures, `walledField` (a playing state whose only wall is the vertical
+  line `x = 0`, so left is blocked and y is free) and `settled` (the same field with the blob already
+  pressed up against that wall), plus seven cases. The blob never equals `start` on any of 60 frames
+  driven into the wall and comes to rest within one sub-step of the contact distance; a diagonal into
+  the wall leaves `x` exactly unchanged while `y` advances the full `speed * dt / sqrt(2)`; a head-on
+  press moves neither axis; a `speed = 100` frame pressed diagonally into the corner ends wall-free
+  per `hitsWall` and inside the maze; `segments`, `seed`, `levelName`, and `maze` survive contact;
+  `hits` rises on a blocked frame and not on a clear one; and the phase is still `playing` after
+  sustained contact.
+
+**Changed**
+- `src/game.js`, `stepPlaying`: the single sweep and its reset branch become two sweeps, x then y,
+  with the second starting from the first's result. The new position is the second sweep's, and
+  `hits` increments when either axis was blocked. The exit check is unchanged and still runs after
+  the move on the post-move position.
+- `tests/integration.test.js`: `wall hits do not change the layout mid-run` becomes `wall contact
+  does not change the layout mid-run`. It now drives 40 frames into the outer border and asserts the
+  layout and seed hold on every one of them, and that the blob rests against the border rather than
+  back at the start.
+
+**Deleted**
+- `tests/game.test.js`: `wall hit resets to start`, `wall hit preserves the maze`, `wall hit
+  increments the counter`, and `large dt does not tunnel`, whose subject no longer exists. The
+  tunneling guard is not lost, it is rewritten as `sliding cannot tunnel` against the new per-axis
+  sweep, which is where tunneling could plausibly have been reintroduced.
+
+**Notes**
+- `src/collision.js` was not touched, as the brief requires. `sweep` already returns the last clear
+  position, which is precisely the blocked-but-not-teleported position this needed.
+- Red run observed first: `a wall never sends the blob back to the start`, `a blocked axis still
+  moves on the other`, `a head-on press moves on neither axis`, and `hits counts blocked frames` all
+  failed against the reset implementation, with `pos` equal to `start` after contact. `sliding cannot
+  tunnel`, `the maze survives contact`, and `contact changes no phase` passed before the change, as
+  expected: they pin behaviour the reset also had.
+- 142 cases pass, up from 139. `node build/build.js` rebuilt `dist/index.html` at 45,325 bytes.
+
 ## Docs - Specify the QA changes and add their task briefs - 2026-07-30 01:28 AM EDT
 
 Documentation only. **No source, test, or build file was touched and nothing was implemented.** Play
