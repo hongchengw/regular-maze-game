@@ -2,6 +2,32 @@
 
 Newest first. One entry per completed task.
 
+## Task 18 - Full-screen scare image - 2026-07-30 06:02 AM EDT
+
+**This completes the second round of QA changes, tasks 16 to 18.** The whole jumpscare image is now
+on screen, stretched to the viewport, with nothing cropped away.
+
+**Added**
+- `tests/jumpscare.test.js`: two cases. The `.jumpscare img` rule declares `object-fit: fill` with
+  full width and height, and it declares neither `cover` nor `contain`, since one crops and the other
+  letterboxes and both leave part of the screen showing something other than the image.
+
+**Changed**
+- `src/styles.css`: `object-fit: cover` becomes `object-fit: fill`, with a comment recording that the
+  distortion is deliberate so a later reader does not "correct" it back.
+
+**Deleted**
+- Nothing.
+
+**Notes**
+- `cover` did fill the screen, which is why it was chosen, but it filled it by cropping whichever
+  axis overflows. The replacement jumpscare image is 1080x608 landscape, so on a portrait phone that
+  was a narrow vertical strip of the picture.
+- Red run observed first: both new cases failed on `cover`.
+- The existing no-animation, no-keyframes, and no-text-content scans over the same rules still pass.
+  Stretching is a layout property, so `SPEC.md` section 13's no-flash rule is untouched.
+- 171 cases pass, up from 169. `node build/build.js` rebuilt `dist/index.html` at 273,354 bytes.
+
 ## Task 17 - Supplied scare sound - 2026-07-30 06:01 AM EDT
 
 The scare plays `assets/regular_sound.mp3`, in sync with the image, through the same gain and limiter

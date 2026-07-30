@@ -53,6 +53,26 @@ test('scare cannot be re-entered from title', () => {
   assert.equal(state.phase, 'title', 'the title screen is inert until START is pressed');
 });
 
+test('the image is stretched to the whole viewport', () => {
+  const css = read('styles.css');
+  const rule = css.slice(css.indexOf('.jumpscare img'));
+  const body = rule.slice(0, rule.indexOf('}'));
+
+  assert.ok(/object-fit:\s*fill/.test(body), 'the image is stretched to the viewport, not fitted to it');
+  assert.ok(/width:\s*100%/.test(body) && /height:\s*100%/.test(body), 'and covers both axes fully');
+});
+
+test('the image is not cropped', () => {
+  const css = read('styles.css');
+  const rule = css.slice(css.indexOf('.jumpscare img'));
+  const body = rule.slice(0, rule.indexOf('}'));
+
+  // `cover` crops whichever axis overflows and `contain` letterboxes. Both leave part of the screen
+  // showing something other than the image, and the whole image is the payload.
+  assert.ok(!/object-fit:\s*cover/.test(body), 'cover crops a landscape image on a portrait phone');
+  assert.ok(!/object-fit:\s*contain/.test(body), 'contain letterboxes it');
+});
+
 test('no animation properties in the stylesheet', () => {
   const css = read('styles.css');
   const rules = css.slice(css.indexOf('.jumpscare'));
