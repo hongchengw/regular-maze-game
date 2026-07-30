@@ -44,10 +44,18 @@ function showPhase(current) {
   }
 
   if (phase === 'scare') {
+    // The stop comes first and must stay first: `jumpscare.show()` is what schedules the scream,
+    // and the scream landing into sudden silence is the contrast the whole app is built around.
+    audio.stopMusic();
     jumpscare.show();
   } else {
     jumpscare.hide();
   }
+
+  // Started on entering the maze and left running through `levelup`, so the handover between levels
+  // is not punctuated by silence. `startMusic` is idempotent, so coming back from a beat is a no-op.
+  if (phase === 'playing') audio.startMusic();
+  if (phase === 'title') audio.stopMusic();
 
   // A key held across a phase change would otherwise leak in as phantom movement.
   if (phase !== 'playing') input.clear();

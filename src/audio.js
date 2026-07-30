@@ -1,15 +1,25 @@
-// The scare sound, synthesized with the Web Audio API. No audio file and no base64 audio blob, so
-// the bundle stays small and the sound is exactly 4 seconds by construction rather than by however
-// long a sourced clip happens to run.
+// The scare sound and the ambient music, both synthesized with the Web Audio API. No audio file and
+// no base64 audio blob, so the bundle stays small and the scream is exactly 4 seconds by
+// construction rather than by however long a sourced clip happens to run.
 //
-// Nothing here reads game state or touches the DOM. No audio plays at any other time: the title,
-// select, and gameplay screens are silent, and silence during play is what makes the scare land.
+// Nothing here reads game state or touches the DOM. The title screen is silent, wall contact makes
+// no sound, and the music is cut before the scream is scheduled, so the scream still lands into
+// silence, which is what makes it land at all.
 
 /** Seconds. The image holds for 10s, so the last 6 are deliberately silent. */
 export const SCREAM_DURATION = 4.0;
 
 /** Master gain ceiling. Startling, not damaging. */
 export const PEAK_GAIN = 0.45;
+
+/**
+ * Master gain ceiling for the ambient music, against the scream's 0.45. It is meant to sit at the
+ * edge of hearing and set unease, never to be listened to.
+ */
+export const MUSIC_GAIN = 0.05;
+
+/** Seconds the music takes to ramp away when stopped. An abrupt stop would click. */
+const MUSIC_FADE = 0.3;
 
 /** Seconds of white noise generated once per context and reused across plays. */
 const NOISE_SECONDS = 4.0;
@@ -128,11 +138,74 @@ export function buildScream(ctx, startTime) {
 }
 
 /**
- * Wrap the scream in a context lifecycle. The constructor is injected so tests can pass a fake or
- * `undefined`; `main.js` passes `window.AudioContext || window.webkitAudioContext`.
+ * The ambient drone: two low detuned oscillators through a lowpass, with two slow LFOs moving the
+ * filter cutoff and the master music gain so it breathes. Returns `{ nodes, gain }`, where `nodes`
+ * are the oscillators, the only things that need stopping.
+ *
+ * Nothing here schedules a stop and nothing loops, because there is no clip to loop: the oscillators
+ * simply run until `stopMusic` ends them, so there is no loop point to hear.
+ */
+export function buildMusic(ctx) {
+  const now = ctx.currentTime;
+
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(MUSIC_GAIN * 0.8, now);
+  gain.connect(ctx.destination);
+
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'lowpass';
+  filter.frequency.setValueAtTime(240, now);
+  filter.Q.setValueAtTime(0.8, now);
+  filter.connect(gain);
+
+  const nodes = [];
+
+  // Two voices a fifth apart, low in the register and detuned a few cents so they beat slowly
+  // against each other rather than sitting still.
+  for (const [frequency, detune] of [[55, -6], [82.5, 7]]) {
+    const voice = ctx.createOscillator();
+    voice.type = 'sawtooth';
+    voice.frequency.setValueAtTime(frequency, now);
+    voice.detune.setValueAtTime(detune, now);
+    voice.connect(filter);
+    voice.start(now);
+    nodes.push(voice);
+  }
+
+  // The filter LFO. Its depth is a cutoff swing in Hz, not a loudness, and it feeds an AudioParam
+  // rather than the audio path, so it is not bound by MUSIC_GAIN.
+  const filterLfo = ctx.createOscillator();
+  filterLfo.type = 'sine';
+  filterLfo.frequency.setValueAtTime(0.06, now);
+  const filterDepth = ctx.createGain();
+  filterDepth.gain.setValueAtTime(120, now);
+  filterLfo.connect(filterDepth);
+  filterDepth.connect(filter.frequency);
+  filterLfo.start(now);
+  nodes.push(filterLfo);
+
+  // The gain LFO: the breathing. A fifth of the base level either side of it, so the peak is exactly
+  // MUSIC_GAIN and the trough is still audible.
+  const gainLfo = ctx.createOscillator();
+  gainLfo.type = 'sine';
+  gainLfo.frequency.setValueAtTime(0.09, now);
+  const gainDepth = ctx.createGain();
+  gainDepth.gain.setValueAtTime(MUSIC_GAIN * 0.2, now);
+  gainLfo.connect(gainDepth);
+  gainDepth.connect(gain.gain);
+  gainLfo.start(now);
+  nodes.push(gainLfo);
+
+  return { nodes, gain };
+}
+
+/**
+ * Wrap the scream and the music in a context lifecycle. The constructor is injected so tests can
+ * pass a fake or `undefined`; `main.js` passes `window.AudioContext || window.webkitAudioContext`.
  */
 export function createAudio(AudioContextCtor) {
   let ctx = null;
+  let music = null;
 
   // Browsers block audio started outside a user gesture, so unlock() is called from the START
   // click handler. Calling it again is harmless.
@@ -157,5 +230,37 @@ export function createAudio(AudioContextCtor) {
     }
   }
 
-  return { unlock, playScream, available: Boolean(AudioContextCtor) };
+  // Idempotent: the node set lives in this closure and a second call is a no-op, since a second set
+  // of voices would simply double the volume.
+  function startMusic() {
+    if (!AudioContextCtor || music) return;
+    try {
+      unlock();
+      if (ctx) music = buildMusic(ctx);
+    } catch (err) {
+      // Swallowed on purpose: music must never throw into the animation loop.
+      music = null;
+    }
+  }
+
+  function stopMusic() {
+    if (!music) return;
+
+    const stopping = music;
+    music = null;
+
+    try {
+      const now = ctx.currentTime;
+      // Ramped rather than cut, since an abrupt stop clicks. The oscillators end just after the
+      // ramp lands, so nothing is still sounding when they do.
+      stopping.gain.gain.cancelScheduledValues(now);
+      stopping.gain.gain.setValueAtTime(MUSIC_GAIN, now);
+      stopping.gain.gain.linearRampToValueAtTime(0.0001, now + MUSIC_FADE);
+      for (const node of stopping.nodes) node.stop(now + MUSIC_FADE + 0.05);
+    } catch (err) {
+      // Swallowed on purpose, as above.
+    }
+  }
+
+  return { unlock, playScream, startMusic, stopMusic, available: Boolean(AudioContextCtor) };
 }

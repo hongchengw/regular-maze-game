@@ -2,6 +2,63 @@
 
 Newest first. One entry per completed task.
 
+## Task 15 - Ambient music - 2026-07-30 05:01 AM EDT
+
+**This completes the QA changes from tasks 11 to 15.** The maze now has a quiet synthesized drone
+under it, at the edge of hearing, which stops the instant the jumpscare begins. The original
+reasoning, that silence during play is what makes the scare land, is preserved rather than discarded:
+the music is very quiet, and it is cut **before** the scream is scheduled, so the scream still
+arrives into silence.
+
+**Added**
+- `src/audio.js`: `MUSIC_GAIN` (0.05, against the scream's 0.45) and `buildMusic(ctx)`, which returns
+  `{ nodes, gain }`. Two sawtooth voices a fifth apart at 55 Hz and 82.5 Hz, detuned a few cents so
+  they beat slowly, through a lowpass at 240 Hz. Two slow LFOs, one swinging the cutoff by 120 Hz at
+  0.06 Hz and one breathing the master music gain by a fifth of its base at 0.09 Hz. Nothing
+  schedules a stop and nothing loops, so there is no loop point to hear.
+- `src/audio.js`: `startMusic()` and `stopMusic()` on the object `createAudio` returns, alongside
+  `unlock()` and `playScream()`. `startMusic` keeps the node set in a closure and returns early if it
+  exists, since a second set of voices would simply double the volume. `stopMusic` ramps the gain to
+  near silence over 0.3s and ends the oscillators just after, because an abrupt stop clicks. Both are
+  wrapped in `try/catch` like `playScream`.
+- `tests/audio.test.js`: 8 cases, on the hand-written fake context already there rather than a Web
+  Audio mock. `MUSIC_GAIN <= 0.06` and `MUSIC_GAIN * 4 < PEAK_GAIN`; no gain on the path to the
+  destination is ever scheduled above the cap; the graph schedules no `stop` at build time; a second
+  `startMusic` creates no second set of oscillators; after `stopMusic` every oscillator it started
+  has a recorded stop and the gain arrived at silence by a ramp rather than in one step;
+  `createAudio(undefined)` starts and stops without throwing; and constructing the audio object
+  schedules nothing at all.
+
+**Changed**
+- `src/main.js`, `showPhase`: the music starts on entering `playing`, is left running through
+  `levelup` so the handover is not punctuated by silence, and is stopped on the return to `title`.
+  On entering `scare` the stop comes **first**, before `jumpscare.show()`, which is what schedules
+  the scream.
+- `tests/audio.test.js`: the fake context now stamps every logged event with a monotonic sequence
+  number and records which `AudioParam` method was called. Ordering is what this task turns on, and
+  the music and the scream are deliberately scheduled for different times, so the times alone could
+  not express it.
+
+**Deleted**
+- Nothing.
+
+**Notes**
+- `stopMusic before the scream` asserts the rule twice, because one assertion could not hold it. On
+  the fake context, every music `stop` is recorded before the first scream node is built. In the
+  source, `showPhase`'s `audio.stopMusic()` appears before its `jumpscare.show()`. The call site is a
+  DOM edge no test can drive, so without the second assertion the first would only be testing the
+  order the test itself called them in.
+- "No gain above the cap" is asserted over the nodes that actually reach the destination. An LFO's
+  depth feeds an `AudioParam` and is measured in Hz for the filter sweep, so it is deliberately
+  outside that set: the audio path is where a gain means loudness.
+- Red run observed first: `ERR_MODULE_NOT_FOUND` on `MUSIC_GAIN` and `buildMusic`. The source-order
+  assertion then failed for a reason worth recording: the comment above the stop names
+  `jumpscare.show()` in prose, so the scan matched the comment. The test now strips comments first,
+  as the no-debug-affordance scan in `tests/integration.test.js` already did.
+- 165 cases pass, up from 157. `node build/build.js` rebuilt `dist/index.html` at 53,290 bytes.
+- Not yet verified by ear or on iOS Safari: the manual listen and the mobile gesture check in the
+  task's done criteria are the two remaining items and need a person and a device.
+
 ## Task 14 - Pulsing exit marker - 2026-07-30 04:56 AM EDT
 
 The player can now tell they have found the end. The exit carries a slowly pulsing amber marker,
